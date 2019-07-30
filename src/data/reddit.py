@@ -1,6 +1,7 @@
 from datetime import datetime
 from pprint import pformat
 from typing import Any, Dict, List, Optional
+from abc import ABC, abstractmethod
 
 
 class RedditPostLoadingError(Exception):
@@ -24,7 +25,7 @@ class UnhandledAttributeError(RedditPostLoadingError):
                          .format(', '.join(sorted(obj.keys()))))
 
 
-class RedditPost:
+class RedditPost(ABC):
     def __init__(self,
                  id: str,
                  archived: bool,
@@ -69,6 +70,7 @@ class RedditPost:
         self.subreddit_id = subreddit_id
 
     @property
+    @abstractmethod
     def permalink(self):
         raise NotImplementedError()
 
@@ -172,6 +174,13 @@ class RedditPost:
         if obj:
             raise UnhandledAttributeError(obj)
         return result
+
+    @classmethod
+    @abstractmethod
+    def load_json_helper(cls,
+                         obj: Dict[str, Any],
+                         base_args: List) -> 'RedditPost':
+        raise NotImplementedError()
 
 
 class RedditLink(RedditPost):
