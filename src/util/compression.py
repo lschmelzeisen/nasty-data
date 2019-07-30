@@ -1,6 +1,7 @@
 from bz2 import BZ2File
 from gzip import GzipFile
 from io import TextIOWrapper
+from sys import stderr
 from lzma import LZMAFile
 from pathlib import Path
 
@@ -25,7 +26,7 @@ class DecompressingTextIOWrapper(TextIOWrapper):
             if warn_uncompressed:
                 print('WARNING: Could not detect compression type of file "{}" '
                       'from its extension, treating as uncompressed file.'
-                      .format(path))
+                      .format(path), file=stderr)
             self._fin = self._fp
         super().__init__(self._fin, encoding=encoding)
 

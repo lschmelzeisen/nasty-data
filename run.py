@@ -2,7 +2,7 @@ import json
 from collections import defaultdict
 from json import JSONDecodeError
 from pathlib import Path
-from sys import exit
+from sys import exit, stderr
 
 from elasticsearch import Elasticsearch
 from tqdm import tqdm
@@ -86,7 +86,8 @@ for file in files:
                 non_logging_errors = [IncompletePostError, PromotedContentError]
                 if type(e) not in non_logging_errors:
                     print('WARNING: {:s} From line {:d} in file "{:s}": {:s}'
-                          .format(error, line_no, str(file), line.rstrip('\n')))
+                          .format(error, line_no, str(file), line.rstrip('\n')),
+                          file=stderr)
 
             progress_bar.n = fin.tell()
             progress_bar.refresh()
