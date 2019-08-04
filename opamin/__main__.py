@@ -9,8 +9,9 @@ from elasticsearch.helpers import bulk
 from elasticsearch_dsl.connections import create_connection
 from tqdm import tqdm
 
-from src.data.reddit import RedditPost, get_reddit_index, reset_reddit_index
-from src.util.compression import DecompressingTextIOWrapper
+from opamin.data.reddit import RedditPost, get_reddit_index, \
+    reset_reddit_index
+from opamin.util.compression import DecompressingTextIOWrapper
 
 SECRETS_FOLDER = Path('secrets')
 CA_CRT_PATH = SECRETS_FOLDER / 'ca.crt'

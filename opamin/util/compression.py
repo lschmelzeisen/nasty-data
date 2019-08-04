@@ -1,9 +1,9 @@
 from bz2 import BZ2File
 from gzip import GzipFile
 from io import TextIOWrapper
-from sys import stderr
 from lzma import LZMAFile
 from pathlib import Path
+from sys import stderr
 
 from zstandard import ZstdDecompressor
 

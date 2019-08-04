@@ -36,8 +36,8 @@ from elasticsearch_dsl import Document, Index, MetaField, analyzer, field, \
 #   because we don't anticipate the need to do exact-match queries on the
 #   text-Fields and because the original value is already stored in the
 #   _source-meta-field. Disabling _source and enabling "store" did not yield a
-#   very noticeable change in index size but severely reduces stuff we can do
-#   with the index. For the storage space / functionality trade-off again, we
+#   very noticeable change in opamin size but severely reduces stuff we can do
+#   with the opamin. For the storage space / functionality trade-off again, we
 #   set index_options='offsets' and don't enable 'index_phrases' (see experiment
 #   below).
 # - field.Integer was used for all numeric fields because it seemed large enough
@@ -58,20 +58,20 @@ from elasticsearch_dsl import Document, Index, MetaField, analyzer, field, \
 #   don't anticipate building an actual user facing UI for our copy of the
 #   Reddit dataset, we didn't pay any attention to stuff like autocompletion.
 #   One note for the future: adding more analyzers does not seem to require that
-#   much more storage space, because only the inverted index is enlarged and
+#   much more storage space, because only the inverted opamin is enlarged and
 #   analyzer values are not stored per entry.
 # - Since the Reddit dataset is very large, we did enable "best_compression",
-#   i.e. DEFLATE, for the index instead of the default, i.e. LZ4. While this
+#   i.e. DEFLATE, for the opamin instead of the default, i.e. LZ4. While this
 #   should increase access times a bit it considerably decreases storage space
 #   requirements, and we don't anticipate frequent access anyhow.
 #
-# === Experiment on required storage space for different index configurations
+# === Experiment on required storage space for different opamin configurations
 #
 # The following was done with a small sample of reddit posts (total 32158, 36mb
 # uncompressed): the first 100 posts of each of 324 different Pushshift archives
-# files from 2005-12 until 2019-02. We did note track down index times because
+# files from 2005-12 until 2019-02. We did note track down opamin times because
 # this experiment was performed over a network connection and the random delay
-# added by the network was far larger than any change in index times.
+# added by the network was far larger than any change in opamin times.
 #
 # +--------------------------+---------------+----------------+--------+
 # | index_options            |               | compression    |        |
