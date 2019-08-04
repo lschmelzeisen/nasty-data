@@ -1,16 +1,20 @@
 from bz2 import BZ2File
 from gzip import GzipFile
 from io import TextIOWrapper
+from logging import getLogger
 from lzma import LZMAFile
 from pathlib import Path
-from sys import stderr
 
 from zstandard import ZstdDecompressor
+
+import opamin
 
 
 class DecompressingTextIOWrapper(TextIOWrapper):
     def __init__(self, path: Path, encoding: str,
                  warn_uncompressed: bool = True):
+        logger = getLogger(opamin.__name__)
+
         self.path = path
 
         self._fp = path.open('rb')
@@ -24,9 +28,9 @@ class DecompressingTextIOWrapper(TextIOWrapper):
             self._fin = ZstdDecompressor().stream_reader(self._fp)
         else:
             if warn_uncompressed:
-                print('WARNING: Could not detect compression type of file "{}" '
-                      'from its extension, treating as uncompressed file.'
-                      .format(path), file=stderr)
+                logger.warning('Could not detect compression type of file "{}" '
+                               'from its extension, treating as uncompressed '
+                               'file.'.format(path))
             self._fin = self._fp
         super().__init__(self._fin, encoding=encoding)
 

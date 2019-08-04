@@ -1,14 +1,17 @@
 import json
+import logging
 from collections import defaultdict
 from json import JSONDecodeError
+from logging import getLogger
 from pathlib import Path
-from sys import stderr
 
+import elasticsearch
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 from elasticsearch_dsl.connections import create_connection
 from tqdm import tqdm
 
+import opamin
 from opamin.data.reddit import RedditPost, get_reddit_index, \
     reset_reddit_index
 from opamin.util.compression import DecompressingTextIOWrapper
@@ -19,27 +22,50 @@ ELASTIC_IP_PATH = SECRETS_FOLDER / 'elastic-ip'
 ELASTIC_PASSWORD_PATH = SECRETS_FOLDER / 'elastic-password'
 
 
+def main():
+    setup_logging()
+
+    connection = connect_elasticsearch()
+    reddit_index = get_reddit_index()
+    reset_reddit_index()
+    res = bulk(connection, (d.to_dict(include_meta=True, skip_empty=True)
+                            for d in index_reddit()))
+
+
+def setup_logging():
+    logging.basicConfig(
+        format='{asctime} {levelname}({name}): {message}',
+        style='{',
+        level=logging.INFO)
+    getLogger(opamin.__name__).setLevel(logging.DEBUG)
+    getLogger(elasticsearch.__name__).setLevel(logging.WARN)
+
+
 def connect_elasticsearch() -> Elasticsearch:
+    logger = getLogger(opamin.__name__)
+
     if not CA_CRT_PATH.exists():
-        print('Could not find CA-Certificate in in {}.'.format(CA_CRT_PATH),
-              file=stderr)
+        logger.error('Could not find CA-Certificate in in '
+                     '"{}".'.format(CA_CRT_PATH))
         exit()
 
+    elastic_ip = None
     try:
         with ELASTIC_IP_PATH.open() as fin:
             elastic_ip = fin.read()
     except IOError:
-        print('Could not access IP for Elasticsearch instance in {}.'
-              .format(ELASTIC_IP_PATH), file=stderr)
-        raise
+        logger.exception('Could not access IP for Elasticsearch instance in '
+                         '"{}".'.format(ELASTIC_IP_PATH))
+        exit()
 
+    elastic_password = None
     try:
         with ELASTIC_PASSWORD_PATH.open() as fin:
             elastic_password = fin.read()
     except IOError:
-        print('Could not access Password for Elastic user in {}.'
-              .format(ELASTIC_PASSWORD_PATH), file=stderr)
-        raise
+        logger.exception('Could not access Password for Elastic user in '
+                         '"{}".'.format(ELASTIC_PASSWORD_PATH))
+        exit()
 
     return create_connection(
         hosts=[elastic_ip],
@@ -66,6 +92,8 @@ def connect_elasticsearch() -> Elasticsearch:
 
 
 def index_reddit():
+    logger = getLogger(opamin.__name__)
+
     files = [
         Path('programming_samples_small.jsonl'),
         # Path('programming_samples_large.jsonl'),
@@ -107,20 +135,17 @@ def index_reddit():
                     non_logging_errors = [RedditPost.IncompleteDataError,
                                           RedditPost.PromotedContentError]
                     if type(e) not in non_logging_errors:
-                        print('WARNING: {:s} From line {:d} in file "{:s}": '
-                              '{:s}'.format(error, line_no, str(file),
-                                            line.rstrip('\n')), file=stderr)
+                        logger.exception('{:s} From line {:d} in file "{}": '
+                                         '{:s}'.format(error, line_no, file,
+                                                       line.rstrip('\n')))
 
-    print('Report of loaded Reddit objects:')
+    logger.info('Report of loaded Reddit objects:')
     total = sum(counts.values())
     for error in sorted(counts.keys()):
         count = counts[error]
-        print('- {:s}: {:d} ({:.2%})'.format(error[:-1], count, count / total))
+        logger.info('- {:s}: {:d} ({:.2%})'
+                    .format(error[:-1], count, count / total))
 
 
 if __name__ == '__main__':
-    connection = connect_elasticsearch()
-    reddit_index = get_reddit_index()
-    reset_reddit_index()
-    res = bulk(connection, (d.to_dict(include_meta=True, skip_empty=True)
-                            for d in index_reddit()))
+    main()
