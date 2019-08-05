@@ -1,11 +1,9 @@
 import json
-import logging
 from collections import defaultdict
 from json import JSONDecodeError
 from logging import getLogger
 from pathlib import Path
 
-import elasticsearch
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 from elasticsearch_dsl.connections import create_connection
@@ -15,6 +13,7 @@ import opamin
 from opamin.data.reddit import RedditPost, get_reddit_index, \
     reset_reddit_index
 from opamin.util.compression import DecompressingTextIOWrapper
+from opamin.util.logging import setup_logging
 
 SECRETS_FOLDER = Path('secrets')
 CA_CRT_PATH = SECRETS_FOLDER / 'ca.crt'
@@ -30,15 +29,6 @@ def main():
     reset_reddit_index()
     res = bulk(connection, (d.to_dict(include_meta=True, skip_empty=True)
                             for d in index_reddit()))
-
-
-def setup_logging():
-    logging.basicConfig(
-        format='{asctime} {levelname}({name}): {message}',
-        style='{',
-        level=logging.INFO)
-    getLogger(opamin.__name__).setLevel(logging.DEBUG)
-    getLogger(elasticsearch.__name__).setLevel(logging.WARN)
 
 
 def connect_elasticsearch() -> Elasticsearch:
@@ -110,6 +100,9 @@ def index_reddit():
             for line_no, line in enumerate(fin):
                 progress_bar.n = fin.tell()
                 progress_bar.refresh()
+
+                if line_no == 1000:
+                    logger.info('lel o my gawdt ')
 
                 # For some reason, there is at least one line (specifically,
                 # line 29876 in file RS_2011-01.bz2) that contains NUL
