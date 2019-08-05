@@ -2,9 +2,8 @@ import logging
 from logging import getLogger
 
 import elasticsearch
+import urllib3
 from tqdm import tqdm
-
-import opamin
 
 
 # from https://github.com/tqdm/tqdm/issues/313#issuecomment-346819396
@@ -14,12 +13,14 @@ class TqdmStream:
         tqdm.write(msg, end='')
 
 
-def setup_logging():
+def setup_logging(level: str):
+    numeric_level = getattr(logging, level)
+
     logging.basicConfig(
         format='{asctime} {levelname}({name}): {message}',
         style='{',
-        level=logging.INFO,
+        level=numeric_level,
         stream=TqdmStream)
 
-    getLogger(opamin.__name__).setLevel(logging.DEBUG)
     getLogger(elasticsearch.__name__).setLevel(logging.WARN)
+    getLogger(urllib3.__name__).setLevel(logging.WARN)

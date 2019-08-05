@@ -1,4 +1,6 @@
 import json
+import sys
+from argparse import ArgumentParser
 from collections import defaultdict
 from json import JSONDecodeError
 from logging import getLogger
@@ -21,14 +23,38 @@ ELASTIC_IP_PATH = SECRETS_FOLDER / 'elastic-ip'
 ELASTIC_PASSWORD_PATH = SECRETS_FOLDER / 'elastic-password'
 
 
-def main():
-    setup_logging()
+def main(argv=sys.argv[1:]):
+    args = load_args(argv)
+
+    setup_logging(args.log_level)
+    logger = getLogger(opamin.__name__)
+    logger.debug('Raw arguments: {}'.format(argv))
+    logger.debug('Parsed Arguments: {}'.format(vars(args)))
+
+    # sys.exit()
 
     connection = connect_elasticsearch()
     reddit_index = get_reddit_index()
     reset_reddit_index()
     res = bulk(connection, (d.to_dict(include_meta=True, skip_empty=True)
                             for d in index_reddit()))
+
+
+def load_args(argv):
+    argparser = ArgumentParser(prog='opamin', description='TODO')
+
+    # Set up general arguments
+    argparser.add_argument('-v', '--version', action='version',
+                           version='%(prog)s development version')
+    argparser.add_argument('--log-level', metavar='<level>', type=str,
+                           choices=['DEBUG', 'INFO', 'WARN', 'ERROR'],
+                           default='INFO', dest='log_level',
+                           help='set logging level (DEBUG, INFO, WARN, ERROR)')
+
+    # Parse arguments
+    args = argparser.parse_args(argv)
+
+    return args
 
 
 def connect_elasticsearch() -> Elasticsearch:
@@ -100,9 +126,6 @@ def index_reddit():
             for line_no, line in enumerate(fin):
                 progress_bar.n = fin.tell()
                 progress_bar.refresh()
-
-                if line_no == 1000:
-                    logger.info('lel o my gawdt ')
 
                 # For some reason, there is at least one line (specifically,
                 # line 29876 in file RS_2011-01.bz2) that contains NUL
