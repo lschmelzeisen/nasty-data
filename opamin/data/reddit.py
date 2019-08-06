@@ -170,10 +170,10 @@ class RedditPost(Document):
                              .format(', '.join(sorted(obj.keys()))))
 
     @property
-    def permalink(self):
+    def permalink(self) -> str:
         raise NotImplementedError()
 
-    def __str__(self):
+    def __str__(self) -> str:
         d = self.to_dict()
         d['_id'] = self.meta.id
         d['permalink'] = self.permalink
@@ -333,7 +333,7 @@ class RedditLink(RedditPost):
     url = field.Keyword(required=True)
 
     @property
-    def permalink(self):
+    def permalink(self) -> str:
         return 'https://reddit.com/r/{}/comments/{}/'.format(
             self.subreddit, self.meta.id[3:])
 
@@ -458,7 +458,7 @@ class RedditComment(RedditPost):
     parent_id = field.Keyword(required=True)
 
     @property
-    def permalink(self):
+    def permalink(self) -> str:
         return 'https://reddit.com/r/{}/comments/{}/_/{}/'.format(
             self.subreddit, self.link_id[3:], self.meta.id[3:])
 
@@ -491,7 +491,7 @@ class RedditComment(RedditPost):
         return result
 
 
-def get_reddit_index():
+def get_reddit_index() -> Index:
     return Index('reddit')
 
 

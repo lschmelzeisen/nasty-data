@@ -34,16 +34,16 @@ class DecompressingTextIOWrapper(TextIOWrapper):
             self._fin = self._fp
         super().__init__(self._fin, encoding=encoding)
 
-    def size(self):
+    def size(self) -> int:
         return self.path.stat().st_size
 
-    def tell(self):
+    def tell(self) -> int:
         """Tells the number of compressed bytes that have already been read."""
         return self._fp.tell()
 
-    def __enter__(self):
+    def __enter__(self) -> 'DecompressingTextIOWrapper':
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self._fp.close()
         self._fin.close()

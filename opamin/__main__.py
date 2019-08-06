@@ -1,10 +1,11 @@
 import json
 import sys
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Namespace
 from collections import defaultdict
 from json import JSONDecodeError
 from logging import getLogger
 from pathlib import Path
+from typing import List, Tuple
 
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
@@ -12,6 +13,8 @@ from elasticsearch_dsl.connections import create_connection
 from tqdm import tqdm
 
 import opamin
+import opamin.commands
+from opamin.commands import *  # Must be wildcard import so subcommands work.
 from opamin.data.reddit import RedditPost, get_reddit_index, \
     reset_reddit_index
 from opamin.util.compression import DecompressingTextIOWrapper
@@ -23,15 +26,15 @@ ELASTIC_IP_PATH = SECRETS_FOLDER / 'elastic-ip'
 ELASTIC_PASSWORD_PATH = SECRETS_FOLDER / 'elastic-password'
 
 
-def main(argv=sys.argv[1:]):
-    args = load_args(argv)
+def main(argv: List[str] = sys.argv[1:]):
+    args, command = load_args(argv)
 
     setup_logging(args.log_level)
     logger = getLogger(opamin.__name__)
     logger.debug('Raw arguments: {}'.format(argv))
-    logger.debug('Parsed Arguments: {}'.format(vars(args)))
-
-    # sys.exit()
+    logger.debug('Parsed arguments: {}'.format(vars(args)))
+    logger.debug('Command class: {}.{}'.format(command.__module__,
+                                               command.__name__))
 
     connection = connect_elasticsearch()
     reddit_index = get_reddit_index()
@@ -40,10 +43,9 @@ def main(argv=sys.argv[1:]):
                             for d in index_reddit()))
 
 
-def load_args(argv):
+def load_args(argv: List[str]) -> Tuple[Namespace, Command]:
     argparser = ArgumentParser(prog='opamin', description='TODO')
 
-    # Set up general arguments
     argparser.add_argument('-v', '--version', action='version',
                            version='%(prog)s development version')
     argparser.add_argument('--log-level', metavar='<level>', type=str,
@@ -51,10 +53,28 @@ def load_args(argv):
                            default='INFO', dest='log_level',
                            help='set logging level (DEBUG, INFO, WARN, ERROR)')
 
-    # Parse arguments
+    def add_subcommands(argparser, cls, depth=1):
+        if len(cls.__subclasses__()):
+            title = ('sub' * (depth - 1)) + 'command'
+            subparsers = argparser.add_subparsers(title=title,
+                                                  metavar='<{}>'.format(title))
+            subparsers.required = True
+
+            for subclass in cls.__subclasses__():
+                subparser = subparsers.add_parser(
+                    subclass.command,
+                    aliases=subclass.aliases,
+                    help=subclass.description,
+                    description=subclass.description)
+                subparser.set_defaults(command=subclass)
+                subclass.config_argparser(subparser)
+                add_subcommands(subparser, subclass, depth=depth + 1)
+
+    add_subcommands(argparser, Command)
+
     args = argparser.parse_args(argv)
 
-    return args
+    return args, args.command
 
 
 def connect_elasticsearch() -> Elasticsearch:
@@ -107,7 +127,7 @@ def connect_elasticsearch() -> Elasticsearch:
     )
 
 
-def index_reddit():
+def index_reddit() -> None:
     logger = getLogger(opamin.__name__)
 
     files = [
