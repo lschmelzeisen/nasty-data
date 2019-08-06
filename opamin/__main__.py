@@ -5,8 +5,9 @@ from collections import defaultdict
 from json import JSONDecodeError
 from logging import getLogger
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, Generator, List, Tuple
 
+import toml
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 from elasticsearch_dsl.connections import create_connection
@@ -14,16 +15,11 @@ from tqdm import tqdm
 
 import opamin
 import opamin.commands
-from opamin.commands import *  # Must be wildcard import so subcommands work.
+from opamin.commands import Command
 from opamin.data.reddit import RedditPost, get_reddit_index, \
     reset_reddit_index
 from opamin.util.compression import DecompressingTextIOWrapper
 from opamin.util.logging import setup_logging
-
-SECRETS_FOLDER = Path('secrets')
-CA_CRT_PATH = SECRETS_FOLDER / 'ca.crt'
-ELASTIC_IP_PATH = SECRETS_FOLDER / 'elastic-ip'
-ELASTIC_PASSWORD_PATH = SECRETS_FOLDER / 'elastic-password'
 
 
 def main(argv: List[str] = sys.argv[1:]):
@@ -33,17 +29,21 @@ def main(argv: List[str] = sys.argv[1:]):
     logger = getLogger(opamin.__name__)
     logger.debug('Raw arguments: {}'.format(argv))
     logger.debug('Parsed arguments: {}'.format(vars(args)))
-    logger.debug('Command class: {}.{}'.format(command.__module__,
-                                               command.__name__))
+    logger.debug('Parsed command: {}.{}'.format(command.__module__,
+                                                command.__name__))
 
-    connection = connect_elasticsearch()
+    config = load_config()
+
+    command(args, config).run()
+
+    connection = connect_elasticsearch(config)
     reddit_index = get_reddit_index()
     reset_reddit_index()
     res = bulk(connection, (d.to_dict(include_meta=True, skip_empty=True)
                             for d in index_reddit()))
 
 
-def load_args(argv: List[str]) -> Tuple[Namespace, Command]:
+def load_args(argv: List[str]) -> Tuple[Namespace, Command.__class__]:
     argparser = ArgumentParser(prog='opamin', description='TODO')
 
     argparser.add_argument('-v', '--version', action='version',
@@ -77,41 +77,51 @@ def load_args(argv: List[str]) -> Tuple[Namespace, Command]:
     return args, args.command
 
 
-def connect_elasticsearch() -> Elasticsearch:
+def load_config(path: Path = Path(__file__).parent.parent / 'config.toml') \
+        -> Dict:
     logger = getLogger(opamin.__name__)
 
-    if not CA_CRT_PATH.exists():
-        logger.error('Could not find CA-Certificate in in '
-                     '"{}".'.format(CA_CRT_PATH))
-        exit()
+    if not path.exists():
+        logger.error('Could not find config file in "{}". Make sure you copy '
+                     'the example config file to this location and set your '
+                     'personal settings/secrets.'.format(path))
+        sys.exit()
 
-    elastic_ip = None
-    try:
-        with ELASTIC_IP_PATH.open() as fin:
-            elastic_ip = fin.read()
-    except IOError:
-        logger.exception('Could not access IP for Elasticsearch instance in '
-                         '"{}".'.format(ELASTIC_IP_PATH))
-        exit()
+    logger.debug('Loading config from "{}"...'.format(path))
+    with path.open(encoding='UTF-8') as fin:
+        config = toml.load(fin)
 
-    elastic_password = None
-    try:
-        with ELASTIC_PASSWORD_PATH.open() as fin:
-            elastic_password = fin.read()
-    except IOError:
-        logger.exception('Could not access Password for Elastic user in '
-                         '"{}".'.format(ELASTIC_PASSWORD_PATH))
-        exit()
+    def hide_secrets(value, hidden=False):
+        if isinstance(value, dict):
+            return {k: hide_secrets(v, hidden=(hidden or ('secret' in k)))
+                    for k, v in value.items()}
+        return '<hidden>' if hidden else value
+
+    logger.debug('Loaded config:')
+    for line in toml.dumps(hide_secrets(config)).splitlines():
+        logger.debug('  ' + line)
+
+    return config
+
+
+def connect_elasticsearch(config: Dict) -> Elasticsearch:
+    logger = getLogger(opamin.__name__)
+    c = config['elasticsearch-secrets']  # Shortcut alias.
+
+    if not Path(c['ca-crt-path']).exists():
+        logger.error('Could not find CA-Certificate in '
+                     '"{}".'.format(c['ca-crt-path']))
+        sys.exit()
 
     return create_connection(
-        hosts=[elastic_ip],
-        http_auth=('elastic', elastic_password),
+        hosts=[c['ip']],
+        http_auth=(c['user'], c['password']),
         port=9200,
 
         # Use SSL
         scheme='https',
         use_ssl=True,
-        ca_certs=CA_CRT_PATH,
+        ca_certs=c['ca-crt-path'],
         ssl_show_warn=True,
         ssl_assert_hostname=False,
         verify_certs=True,
@@ -127,7 +137,7 @@ def connect_elasticsearch() -> Elasticsearch:
     )
 
 
-def index_reddit() -> None:
+def index_reddit() -> Generator[RedditPost, None, None]:
     logger = getLogger(opamin.__name__)
 
     files = [

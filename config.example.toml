@@ -1,0 +1,5 @@
+[elasticsearch-secrets]
+ip = "YOUR-ELASTICSEARCH-IP-HERE"
+user = "elastic"
+password = "YOUR-ELASTICSEARCH-PASSWORD-HERE"
+ca-crt-path = "ca.crt"

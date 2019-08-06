@@ -1,4 +1,11 @@
-.idea/
-secrets/
+# Python folders
 venv/
 __pycache__/
+
+# IDE Files
+.idea/
+
+# Config file potentially containing secrtes
+config.toml
+
+ca.crt
