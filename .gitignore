@@ -5,6 +5,9 @@ __pycache__/
 # IDE Files
 .idea/
 
+# Data folder
+data/
+
 # Config file potentially containing secrtes
 config.toml
 

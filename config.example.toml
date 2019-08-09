@@ -1,3 +1,6 @@
+[data]
+pushshift-path = 'data/pushshift'
+
 [elasticsearch-secrets]
 ip = "YOUR-ELASTICSEARCH-IP-HERE"
 user = "elastic"

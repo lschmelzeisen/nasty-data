@@ -28,4 +28,3 @@ def setup_logging(level: str):
     else:
         getLogger(elasticsearch.__name__).setLevel(logging.WARN)
         getLogger(urllib3.__name__).setLevel(logging.WARN)
-
