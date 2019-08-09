@@ -5,7 +5,6 @@ from typing import Any, Dict
 from elasticsearch_dsl import Document, Index, MetaField, analyzer, field, \
     token_filter, tokenizer
 
-
 # === Documentation of design decision
 #
 # - The Reddit Pushshift dataset contains Reddit links and comments from a large
@@ -127,6 +126,41 @@ from elasticsearch_dsl import Document, Index, MetaField, analyzer, field, \
 #   https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-params.html
 
 # TODO: normalize/remove the markdown from Reddit posts?
+
+reddit_index = Index('reddit')
+
+standard_uax_url_email_analyzer = analyzer(
+    'standard_uax_url_email',
+    tokenizer=tokenizer('uax_url_email'),
+    filter=[token_filter('asciifolding'),
+            token_filter('lowercase')])
+english_uax_url_email_analyzer = analyzer(
+    'english_uax_url_email',
+    tokenizer=tokenizer('uax_url_email'),
+    filter=[token_filter('asciifolding'),
+            token_filter('english_possessive_stemmer',
+                         type='stemmer',
+                         language='possessive_english'),
+            token_filter('lowercase'),
+            token_filter('english_stop',
+                         type='stop',
+                         stopwords='_english_'),
+            token_filter('english_stemmer',
+                         type='stemmer',
+                         language='english')])
+
+
+def configure_reddit_index():
+    reddit_index.settings(
+        number_of_shards=1, number_of_replicas=0, codec='best_compression')
+
+    reddit_index.analyzer(standard_uax_url_email_analyzer)
+    reddit_index.analyzer(english_uax_url_email_analyzer)
+
+    reddit_index.document(RedditLink)
+    reddit_index.document(RedditComment)
+
+    reddit_index.save()
 
 
 class RedditPost(Document):
@@ -303,6 +337,7 @@ class RedditPost(Document):
         raise NotImplementedError
 
 
+@reddit_index.document
 class RedditLink(RedditPost):
     # Link ID of crosspost parent.
     crosspost_parent = field.Keyword()
@@ -319,17 +354,17 @@ class RedditLink(RedditPost):
     over_18 = field.Boolean(required=True)
     selftext = field.Text(required=True,
                           index_options='offsets',
-                          analyzer='standard_uax_url_email',
+                          analyzer=standard_uax_url_email_analyzer,
                           fields={'english_analyzed': field.Text(
-                              analyzer='english_uax_url_email')})
+                              analyzer=english_uax_url_email_analyzer)})
     spoiler = field.Boolean(required=True)
     # A URL, "default", "self", or "nsfw" (maybe other values?).
     thumbnail = field.Keyword(required=True)
     title = field.Text(required=True,
                        index_options='offsets',
-                       analyzer='standard_uax_url_email',
+                       analyzer=standard_uax_url_email_analyzer,
                        fields={'english_analyzed': field.Text(
-                           analyzer='english_uax_url_email')})
+                           analyzer=english_uax_url_email_analyzer)})
     url = field.Keyword(required=True)
 
     @property
@@ -448,12 +483,13 @@ class RedditLink(RedditPost):
         return result
 
 
+@reddit_index.document
 class RedditComment(RedditPost):
     body = field.Text(required=True,
                       index_options='offsets',
-                      analyzer='standard_uax_url_email',
+                      analyzer=standard_uax_url_email_analyzer,
                       fields={'english_analyzed': field.Text(
-                          analyzer='english_uax_url_email')})
+                          analyzer=english_uax_url_email_analyzer)})
     link_id = field.Keyword(required=True)
     parent_id = field.Keyword(required=True)
 
@@ -489,41 +525,3 @@ class RedditComment(RedditPost):
 
         result = cls(**construction_kwargs)
         return result
-
-
-def get_reddit_index() -> Index:
-    return Index('reddit')
-
-
-def reset_reddit_index():
-    reddit_index = get_reddit_index()
-
-    reddit_index.delete(ignore=404)
-
-    reddit_index.settings(
-        number_of_shards=1, number_of_replicas=0, codec='best_compression')
-
-    reddit_index.analyzer(analyzer(
-        'standard_uax_url_email',
-        tokenizer=tokenizer('uax_url_email'),
-        filter=[token_filter('asciifolding'),
-                token_filter('lowercase')]))
-    reddit_index.analyzer(analyzer(
-        'english_uax_url_email',
-        tokenizer=tokenizer('uax_url_email'),
-        filter=[token_filter('asciifolding'),
-                token_filter('english_possessive_stemmer',
-                             type='stemmer',
-                             language='possessive_english'),
-                token_filter('lowercase'),
-                token_filter('english_stop',
-                             type='stop',
-                             stopwords='_english_'),
-                token_filter('english_stemmer',
-                             type='stemmer',
-                             language='english')]))
-
-    reddit_index.document(RedditLink)
-    reddit_index.document(RedditComment)
-
-    reddit_index.create()

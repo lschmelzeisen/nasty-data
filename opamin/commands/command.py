@@ -1,4 +1,4 @@
-from argparse import ArgumentParser, Namespace
+from argparse import ArgumentParser, Namespace as ArgumentNamespace
 from logging import getLogger
 from typing import Dict, List
 
@@ -14,7 +14,7 @@ class Command:
     def config_argparser(cls, argparser: ArgumentParser) -> None:
         raise NotImplementedError()
 
-    def __init__(self, args: Namespace, config: Dict):
+    def __init__(self, args: ArgumentNamespace, config: Dict):
         self.args = args
         self.config = config
         self.logger = getLogger(opamin.__name__)

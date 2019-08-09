@@ -22,5 +22,10 @@ def setup_logging(level: str):
         level=numeric_level,
         stream=TqdmStream)
 
-    getLogger(elasticsearch.__name__).setLevel(logging.INFO)
-    getLogger(urllib3.__name__).setLevel(logging.INFO)
+    if numeric_level == logging.DEBUG:
+        getLogger(elasticsearch.__name__).setLevel(logging.INFO)
+        getLogger(urllib3.__name__).setLevel(logging.INFO)
+    else:
+        getLogger(elasticsearch.__name__).setLevel(logging.WARN)
+        getLogger(urllib3.__name__).setLevel(logging.WARN)
+
