@@ -1,9 +1,32 @@
+#
+# Copyright 2019-2020 Lukas Schmelzeisen
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 from datetime import datetime
 from pprint import pformat
 from typing import Any, Dict
 
-from elasticsearch_dsl import Document, Index, MetaField, analyzer, field, \
-    token_filter, tokenizer
+from elasticsearch_dsl import (
+    Document,
+    Index,
+    MetaField,
+    analyzer,
+    field,
+    token_filter,
+    tokenizer,
+)
 
 # === Documentation of design decision
 #
@@ -127,32 +150,32 @@ from elasticsearch_dsl import Document, Index, MetaField, analyzer, field, \
 
 # TODO: normalize/remove the markdown from Reddit posts?
 
-reddit_index = Index('reddit')
+reddit_index = Index("reddit")
 
 standard_uax_url_email_analyzer = analyzer(
-    'standard_uax_url_email',
-    tokenizer=tokenizer('uax_url_email'),
-    filter=[token_filter('asciifolding'),
-            token_filter('lowercase')])
+    "standard_uax_url_email",
+    tokenizer=tokenizer("uax_url_email"),
+    filter=[token_filter("asciifolding"), token_filter("lowercase")],
+)
 english_uax_url_email_analyzer = analyzer(
-    'english_uax_url_email',
-    tokenizer=tokenizer('uax_url_email'),
-    filter=[token_filter('asciifolding'),
-            token_filter('english_possessive_stemmer',
-                         type='stemmer',
-                         language='possessive_english'),
-            token_filter('lowercase'),
-            token_filter('english_stop',
-                         type='stop',
-                         stopwords='_english_'),
-            token_filter('english_stemmer',
-                         type='stemmer',
-                         language='english')])
+    "english_uax_url_email",
+    tokenizer=tokenizer("uax_url_email"),
+    filter=[
+        token_filter("asciifolding"),
+        token_filter(
+            "english_possessive_stemmer", type="stemmer", language="possessive_english"
+        ),
+        token_filter("lowercase"),
+        token_filter("english_stop", type="stop", stopwords="_english_"),
+        token_filter("english_stemmer", type="stemmer", language="english"),
+    ],
+)
 
 
 def configure_reddit_index():
     reddit_index.settings(
-        number_of_shards=1, number_of_replicas=0, codec='best_compression')
+        number_of_shards=1, number_of_replicas=0, codec="best_compression"
+    )
 
     reddit_index.analyzer(standard_uax_url_email_analyzer)
     reddit_index.analyzer(english_uax_url_email_analyzer)
@@ -184,7 +207,7 @@ class RedditPost(Document):
     class Meta:
         # Disable dynamic addition of fields:
         # https://www.elastic.co/guide/en/elasticsearch/reference/current/dynamic.html
-        dynamic = MetaField('strict')
+        dynamic = MetaField("strict")
 
     class LoadingError(Exception):
         def __init__(self, *args, **kwargs):
@@ -196,12 +219,15 @@ class RedditPost(Document):
 
     class PromotedContentError(LoadingError):
         def __init__(self):
-            super().__init__('Promoted content, ignoring.')
+            super().__init__("Promoted content, ignoring.")
 
     class UnhandledAttributeError(LoadingError):
         def __init__(self, obj: Dict[str, Any]):
-            super().__init__('Unhandled attribute(s) in post JSON: {:s}.'
-                             .format(', '.join(sorted(obj.keys()))))
+            super().__init__(
+                "Unhandled attribute(s) in post JSON: {:s}.".format(
+                    ", ".join(sorted(obj.keys()))
+                )
+            )
 
     @property
     def permalink(self) -> str:
@@ -209,131 +235,132 @@ class RedditPost(Document):
 
     def __str__(self) -> str:
         d = self.to_dict()
-        d['_id'] = self.meta.id
-        d['permalink'] = self.permalink
+        d["_id"] = self.meta.id
+        d["permalink"] = self.permalink
         return pformat(d, indent=2)
 
     @classmethod
-    def load_pushshift_json(cls, obj: Dict[str, Any]) -> 'RedditPost':
-        if 'subreddit' not in obj:
+    def load_pushshift_json(cls, obj: Dict[str, Any]) -> "RedditPost":
+        if "subreddit" not in obj:
             raise cls.IncompleteDataError(
-                'Missing subreddit name in post JSON, which is required.')
-        if 'promoted' in obj:
+                "Missing subreddit name in post JSON, which is required."
+            )
+        if "promoted" in obj:
             raise cls.PromotedContentError()
 
-        id = obj.pop('id')
-        assert id
-        obj.pop('name', None)
+        id_ = obj.pop("id")
+        assert id_
+        obj.pop("name", None)
 
-        archived = bool(obj.pop('archived', False))
+        archived = bool(obj.pop("archived", False))
 
-        author = obj.pop('author')
+        author = obj.pop("author")
         assert author
-        obj.pop('author_created_utc', None)
-        obj.pop('author_fullname', None)
-        obj.pop('author_id', None)
-        obj.pop('author_patreon_flair', None)
+        obj.pop("author_created_utc", None)
+        obj.pop("author_fullname", None)
+        obj.pop("author_id", None)
+        obj.pop("author_patreon_flair", None)
 
-        author_cakeday = bool(obj.pop('author_cakeday', False))
+        author_cakeday = bool(obj.pop("author_cakeday", False))
 
-        author_flair_text = obj.pop('author_flair_text')
-        obj.pop('author_flair_background_color', None)
-        obj.pop('author_flair_css_class', None)
-        obj.pop('author_flair_richtext', None)
-        obj.pop('author_flair_template_id', None)
-        obj.pop('author_flair_text_color', None)
-        obj.pop('author_flair_type', None)
+        author_flair_text = obj.pop("author_flair_text")
+        obj.pop("author_flair_background_color", None)
+        obj.pop("author_flair_css_class", None)
+        obj.pop("author_flair_richtext", None)
+        obj.pop("author_flair_template_id", None)
+        obj.pop("author_flair_text_color", None)
+        obj.pop("author_flair_type", None)
 
-        created = datetime.utcfromtimestamp(int(obj.pop('created_utc')))
-        obj.pop('created', None)
+        created = datetime.utcfromtimestamp(int(obj.pop("created_utc")))
+        obj.pop("created", None)
 
-        distinguished = obj.pop('distinguished', None)
+        distinguished = obj.pop("distinguished", None)
 
-        edited = obj.pop('edited') or None  # "or None" in case of empty string.
+        edited = obj.pop("edited") or None  # "or None" in case of empty string.
         if edited:
             edited = datetime.utcfromtimestamp(int(edited))
 
-        gilded = int(obj.pop('gilded', 0))
+        gilded = int(obj.pop("gilded", 0))
 
         retrieved_on = None
-        if 'retrieved_on' in obj:
-            retrieved_on = datetime.utcfromtimestamp(
-                int(obj.pop('retrieved_on')))
+        if "retrieved_on" in obj:
+            retrieved_on = datetime.utcfromtimestamp(int(obj.pop("retrieved_on")))
 
-        rte_mode = obj.pop('rte_mode', None)
+        rte_mode = obj.pop("rte_mode", None)
 
-        score = int(obj.pop('score'))
-        obj.pop('ups', None)
-        obj.pop('downs', None)
-        obj.pop('score_hidden', None)
+        score = int(obj.pop("score"))
+        obj.pop("ups", None)
+        obj.pop("downs", None)
+        obj.pop("score_hidden", None)
 
-        stickied = bool(obj.pop('stickied', False))
+        stickied = bool(obj.pop("stickied", False))
 
-        subreddit = obj.pop('subreddit')
+        subreddit = obj.pop("subreddit")
         assert subreddit
-        subreddit_id = obj.pop('subreddit_id')
+        subreddit_id = obj.pop("subreddit_id")
         assert subreddit_id
-        obj.pop('subreddit_name_prefixed', None)
-        obj.pop('subreddit_type', None)
-        obj.pop('subreddit_subscribers', None)
-        obj.pop('approved', None)
-        obj.pop('approved_at_utc', None)
-        obj.pop('approved_by', None)
-        obj.pop('banned_at_utc', None)
-        obj.pop('banned_by', None)
-        obj.pop('ban_note', None)
-        obj.pop('can_gild', None)
-        obj.pop('can_mod_post', None)
-        obj.pop('gildings', None)
-        obj.pop('likes', None)
-        obj.pop('no_follow', None)
-        obj.pop('quarantine', None)
-        obj.pop('quarantined', None)
-        obj.pop('permalink', None)
-        obj.pop('post_hint', None)
-        obj.pop('preview', None)
-        obj.pop('removal_reason', None)
-        obj.pop('saved', None)
-        obj.pop('send_replies', None)
+        obj.pop("subreddit_name_prefixed", None)
+        obj.pop("subreddit_type", None)
+        obj.pop("subreddit_subscribers", None)
+        obj.pop("approved", None)
+        obj.pop("approved_at_utc", None)
+        obj.pop("approved_by", None)
+        obj.pop("banned_at_utc", None)
+        obj.pop("banned_by", None)
+        obj.pop("ban_note", None)
+        obj.pop("can_gild", None)
+        obj.pop("can_mod_post", None)
+        obj.pop("gildings", None)
+        obj.pop("likes", None)
+        obj.pop("no_follow", None)
+        obj.pop("quarantine", None)
+        obj.pop("quarantined", None)
+        obj.pop("permalink", None)
+        obj.pop("post_hint", None)
+        obj.pop("preview", None)
+        obj.pop("removal_reason", None)
+        obj.pop("saved", None)
+        obj.pop("send_replies", None)
 
         construction_kwargs = {
-            '_id': id,
-            'archived': archived,
-            'author': author,
-            'author_cakeday': author_cakeday,
-            'author_flair_text': author_flair_text,
-            'created': created,
-            'distinguished': distinguished,
-            'edited': edited,
-            'gilded': gilded,
-            'retrieved_on': retrieved_on,
-            'rte_mode': rte_mode,
-            'score': score,
-            'stickied': stickied,
-            'subreddit': subreddit,
-            'subreddit_id': subreddit_id,
+            "_id": id_,
+            "archived": archived,
+            "author": author,
+            "author_cakeday": author_cakeday,
+            "author_flair_text": author_flair_text,
+            "created": created,
+            "distinguished": distinguished,
+            "edited": edited,
+            "gilded": gilded,
+            "retrieved_on": retrieved_on,
+            "rte_mode": rte_mode,
+            "score": score,
+            "stickied": stickied,
+            "subreddit": subreddit,
+            "subreddit_id": subreddit_id,
         }
 
-        if 'title' in obj:
-            result = RedditLink.load_pushshift_json_overwrite(
-                obj, construction_kwargs)
-        elif 'body' in obj:
+        if "title" in obj:
+            result = RedditLink.load_pushshift_json_overwrite(obj, construction_kwargs)
+        elif "body" in obj:
             result = RedditComment.load_pushshift_json_overwrite(
-                obj, construction_kwargs)
+                obj, construction_kwargs
+            )
         else:
             raise cls.IncompleteDataError(
-                'Could not determine whether given post is link or comment '
-                '(both "title" and ''"body" attribute are absent).')
+                "Could not determine whether given post is link or comment "
+                '(both "title" and '
+                '"body" attribute are absent).'
+            )
 
         if obj:
             raise cls.UnhandledAttributeError(obj)
         return result
 
     @classmethod
-    def load_pushshift_json_overwrite(cls,
-                                      obj: Dict[str, Any],
-                                      post_kwargs: Dict[str, Any]) \
-            -> 'RedditPost':
+    def load_pushshift_json_overwrite(
+        cls, obj: Dict[str, Any], post_kwargs: Dict[str, Any]
+    ) -> "RedditPost":
         raise NotImplementedError
 
 
@@ -352,132 +379,140 @@ class RedditLink(RedditPost):
     media_embed = field.Object(enabled=False)
     num_comments = field.Integer(required=True)
     over_18 = field.Boolean(required=True)
-    selftext = field.Text(required=True,
-                          index_options='offsets',
-                          analyzer=standard_uax_url_email_analyzer,
-                          fields={'english_analyzed': field.Text(
-                              analyzer=english_uax_url_email_analyzer)})
+    selftext = field.Text(
+        required=True,
+        index_options="offsets",
+        analyzer=standard_uax_url_email_analyzer,
+        fields={
+            "english_analyzed": field.Text(analyzer=english_uax_url_email_analyzer)
+        },
+    )
     spoiler = field.Boolean(required=True)
     # A URL, "default", "self", or "nsfw" (maybe other values?).
     thumbnail = field.Keyword(required=True)
-    title = field.Text(required=True,
-                       index_options='offsets',
-                       analyzer=standard_uax_url_email_analyzer,
-                       fields={'english_analyzed': field.Text(
-                           analyzer=english_uax_url_email_analyzer)})
+    title = field.Text(
+        required=True,
+        index_options="offsets",
+        analyzer=standard_uax_url_email_analyzer,
+        fields={
+            "english_analyzed": field.Text(analyzer=english_uax_url_email_analyzer)
+        },
+    )
     url = field.Keyword(required=True)
 
     @property
     def permalink(self) -> str:
-        return 'https://reddit.com/r/{}/comments/{}/'.format(
-            self.subreddit, self.meta.id[3:])
+        return "https://reddit.com/r/{}/comments/{}/".format(
+            self.subreddit, self.meta.id[3:]
+        )
 
     @classmethod
-    def load_pushshift_json_overwrite(cls,
-                                      obj: Dict[str, Any],
-                                      construction_kwargs: Dict[str, Any]) \
-            -> 'RedditLink':
-        crosspost_parent = obj.pop('crosspost_parent', None)
-        obj.pop('crosspost_parent_list', None)
+    def load_pushshift_json_overwrite(
+        cls, obj: Dict[str, Any], construction_kwargs: Dict[str, Any]
+    ) -> "RedditLink":
+        crosspost_parent = obj.pop("crosspost_parent", None)
+        obj.pop("crosspost_parent_list", None)
 
-        domain = obj.pop('domain')
-        is_self = bool(obj.pop('is_self'))
+        domain = obj.pop("domain")
+        is_self = bool(obj.pop("is_self"))
 
-        link_flair_text = obj.pop('link_flair_text', None)
-        obj.pop('link_flair_background_color', None)
-        obj.pop('link_flair_css_class', None)
-        obj.pop('link_flair_richtext', None)
-        obj.pop('link_flair_template_id', None)
-        obj.pop('link_flair_text_color', None)
-        obj.pop('link_flair_type', None)
+        link_flair_text = obj.pop("link_flair_text", None)
+        obj.pop("link_flair_background_color", None)
+        obj.pop("link_flair_css_class", None)
+        obj.pop("link_flair_richtext", None)
+        obj.pop("link_flair_template_id", None)
+        obj.pop("link_flair_text_color", None)
+        obj.pop("link_flair_type", None)
 
-        locked = bool(obj.pop('locked', False))
+        locked = bool(obj.pop("locked", False))
 
-        media = obj.pop('media', None)
-        media_embed = obj.pop('media_embed', None)
-        obj.pop('media_metadata', None)
-        obj.pop('media_only', None)
+        media = obj.pop("media", None)
+        media_embed = obj.pop("media_embed", None)
+        obj.pop("media_metadata", None)
+        obj.pop("media_only", None)
 
-        num_comments = int(obj.pop('num_comments'))
-        obj.pop('num_crossposts', None)
-        obj.pop('num_reports', None)
+        num_comments = int(obj.pop("num_comments"))
+        obj.pop("num_crossposts", None)
+        obj.pop("num_reports", None)
 
-        over_18 = bool(obj.pop('over_18'))
+        over_18 = bool(obj.pop("over_18"))
 
-        selftext = obj.pop('selftext')
-        selftext.replace('&lt;', '<')
-        selftext.replace('&gt;', '>')
-        selftext.replace('&amp;', '&')
-        obj.pop('selftext_html', None)
+        selftext = obj.pop("selftext")
+        selftext.replace("&lt;", "<")
+        selftext.replace("&gt;", ">")
+        selftext.replace("&amp;", "&")
+        obj.pop("selftext_html", None)
 
-        spoiler = bool(obj.pop('spoiler', False))
+        spoiler = bool(obj.pop("spoiler", False))
 
         # "or" because empty str is possible.
-        thumbnail = obj.pop('thumbnail', '') or 'default'
-        obj.pop('thumbnail_height', None)
-        obj.pop('thumbnail_width', None)
+        thumbnail = obj.pop("thumbnail", "") or "default"
+        obj.pop("thumbnail_height", None)
+        obj.pop("thumbnail_width", None)
 
-        title = obj.pop('title')
+        title = obj.pop("title")
         assert title
-        url = obj.pop('url')
+        url = obj.pop("url")
         assert url
 
-        obj.pop('brand_safe', None)
-        obj.pop('category', None)
-        obj.pop('clicked', None)
-        obj.pop('collections', None)
-        obj.pop('content_categories', None)
-        obj.pop('contest_mode', None)
-        obj.pop('event_end', None)
-        obj.pop('event_is_live', None)
-        obj.pop('event_start', None)
-        obj.pop('from', None)
-        obj.pop('from_id', None)
-        obj.pop('from_kind', None)
-        obj.pop('hidden', None)
-        obj.pop('hide_score', None)
-        obj.pop('ignore_reports', None)
-        obj.pop('is_crosspostable', None)
-        obj.pop('is_meta', None)
-        obj.pop('is_original_content', None)
-        obj.pop('is_reddit_media_domain', None)
-        obj.pop('is_robot_indexable', None)
-        obj.pop('is_video', None)
-        obj.pop('mod_reports', None)
-        obj.pop('parent_whitelist_status', None)
-        obj.pop('pinned', None)
-        obj.pop('post_categories', None)
-        obj.pop('previous_visits', None)
-        obj.pop('pwls', None)
-        obj.pop('removed', None)
-        obj.pop('report_reasons', None)
-        obj.pop('secure_media', None)
-        obj.pop('secure_media_embed', None)
-        obj.pop('spam', None)
-        obj.pop('suggested_sort', None)
-        obj.pop('user_reports', None)
-        obj.pop('view_count', None)
-        obj.pop('visited', None)
-        obj.pop('whitelist_status', None)
-        obj.pop('wls', None)
+        obj.pop("brand_safe", None)
+        obj.pop("category", None)
+        obj.pop("clicked", None)
+        obj.pop("collections", None)
+        obj.pop("content_categories", None)
+        obj.pop("contest_mode", None)
+        obj.pop("event_end", None)
+        obj.pop("event_is_live", None)
+        obj.pop("event_start", None)
+        obj.pop("from", None)
+        obj.pop("from_id", None)
+        obj.pop("from_kind", None)
+        obj.pop("hidden", None)
+        obj.pop("hide_score", None)
+        obj.pop("ignore_reports", None)
+        obj.pop("is_crosspostable", None)
+        obj.pop("is_meta", None)
+        obj.pop("is_original_content", None)
+        obj.pop("is_reddit_media_domain", None)
+        obj.pop("is_robot_indexable", None)
+        obj.pop("is_video", None)
+        obj.pop("mod_reports", None)
+        obj.pop("parent_whitelist_status", None)
+        obj.pop("pinned", None)
+        obj.pop("post_categories", None)
+        obj.pop("previous_visits", None)
+        obj.pop("pwls", None)
+        obj.pop("removed", None)
+        obj.pop("report_reasons", None)
+        obj.pop("secure_media", None)
+        obj.pop("secure_media_embed", None)
+        obj.pop("spam", None)
+        obj.pop("suggested_sort", None)
+        obj.pop("user_reports", None)
+        obj.pop("view_count", None)
+        obj.pop("visited", None)
+        obj.pop("whitelist_status", None)
+        obj.pop("wls", None)
 
-        construction_kwargs.update({
-            '_id': 't3_' + construction_kwargs['_id'],
-            'crosspost_parent': crosspost_parent,
-            'domain': domain,
-            'is_self': is_self,
-            'link_flair_text': link_flair_text,
-            'locked': locked,
-            'media': media,
-            'media_embed': media_embed,
-            'num_comments': num_comments,
-            'over_18': over_18,
-            'selftext': selftext,
-            'spoiler': spoiler,
-            'thumbnail': thumbnail,
-            'title': title,
-            'url': url,
-        })
+        construction_kwargs.update(
+            {
+                "_id": "t3_" + construction_kwargs["_id"],
+                "crosspost_parent": crosspost_parent,
+                "domain": domain,
+                "is_self": is_self,
+                "link_flair_text": link_flair_text,
+                "locked": locked,
+                "media": media,
+                "media_embed": media_embed,
+                "num_comments": num_comments,
+                "over_18": over_18,
+                "selftext": selftext,
+                "spoiler": spoiler,
+                "thumbnail": thumbnail,
+                "title": title,
+                "url": url,
+            }
+        )
 
         result = cls(**construction_kwargs)
         return result
@@ -485,43 +520,48 @@ class RedditLink(RedditPost):
 
 @reddit_index.document
 class RedditComment(RedditPost):
-    body = field.Text(required=True,
-                      index_options='offsets',
-                      analyzer=standard_uax_url_email_analyzer,
-                      fields={'english_analyzed': field.Text(
-                          analyzer=english_uax_url_email_analyzer)})
+    body = field.Text(
+        required=True,
+        index_options="offsets",
+        analyzer=standard_uax_url_email_analyzer,
+        fields={
+            "english_analyzed": field.Text(analyzer=english_uax_url_email_analyzer)
+        },
+    )
     link_id = field.Keyword(required=True)
     parent_id = field.Keyword(required=True)
 
     @property
     def permalink(self) -> str:
-        return 'https://reddit.com/r/{}/comments/{}/_/{}/'.format(
-            self.subreddit, self.link_id[3:], self.meta.id[3:])
+        return "https://reddit.com/r/{}/comments/{}/_/{}/".format(
+            self.subreddit, self.link_id[3:], self.meta.id[3:]
+        )
 
     @classmethod
-    def load_pushshift_json_overwrite(cls,
-                                      obj: Dict[str, Any],
-                                      construction_kwargs: Dict[str, Any]) \
-            -> 'RedditComment':
-        body = obj.pop('body')
+    def load_pushshift_json_overwrite(
+        cls, obj: Dict[str, Any], construction_kwargs: Dict[str, Any]
+    ) -> "RedditComment":
+        body = obj.pop("body")
 
-        link_id = obj.pop('link_id')
+        link_id = obj.pop("link_id")
         assert link_id
 
-        parent_id = obj.pop('parent_id')
+        parent_id = obj.pop("parent_id")
         assert parent_id
 
-        obj.pop('collapsed', None)
-        obj.pop('collapsed_reason', None)
-        obj.pop('controversiality')
-        obj.pop('is_submitter', None)
+        obj.pop("collapsed", None)
+        obj.pop("collapsed_reason", None)
+        obj.pop("controversiality")
+        obj.pop("is_submitter", None)
 
-        construction_kwargs.update({
-            '_id': 't1_' + construction_kwargs['_id'],
-            'body': body,
-            'link_id': link_id,
-            'parent_id': parent_id
-        })
+        construction_kwargs.update(
+            {
+                "_id": "t1_" + construction_kwargs["_id"],
+                "body": body,
+                "link_id": link_id,
+                "parent_id": parent_id,
+            }
+        )
 
         result = cls(**construction_kwargs)
         return result

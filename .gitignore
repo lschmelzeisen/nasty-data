@@ -1,14 +1,34 @@
-# Python folders
-venv/
+# Byte-compiled / optimized / DLL files
 __pycache__/
+*.py[cod]
+*$py.class
 
-# IDE Files
+# Distribution / packaging
+build/
+dist/
+.eggs
+*.egg-info/
+
+# Unit test / coverage reports
+.coverage*
+.pytest_cache/
+.tox
+tests-coverage
+tests-report.html
+
+# mypy
+.mypy_cache/
+
+# IDE files
 .idea/
 
-# Data folder
+# Virtual environments
+.venv/
+
+# Project specific generated files
+opamin/version.py
 data/
-
-# Config file potentially containing secrtes
-config.toml
-
 ca.crt
+
+# Config file with secrets
+config.toml
