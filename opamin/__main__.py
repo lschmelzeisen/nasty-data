@@ -26,7 +26,14 @@ import toml
 
 import opamin
 import opamin.commands
-from opamin.commands import Command
+from opamin.commands.command import Command
+from opamin.commands.reddit import (  # noqa: F401
+    CommandDownloadPushshift,
+    CommandReddit,
+    CommandRedditConfigureIndex,
+    CommandRedditDeleteIndex,
+    CommandRedditIndexFile,
+)
 from opamin.util.logging import setup_logging
 
 
