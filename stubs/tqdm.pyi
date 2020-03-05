@@ -14,19 +14,14 @@
 # limitations under the License.
 #
 
-import logging
+from typing import Iterable, Iterator, Optional, TextIO, TypeVar
 
-__version__ = "dev"
-try:
-    from .version import __version__
-except ImportError:
-    pass
+_T = TypeVar("_T")
 
-__version_info__ = tuple(
-    (int(part) if part.isdigit() else part)
-    for part in __version__.split(".", maxsplit=4)
-)
-
-# Don't show log messages in applications that don't configure logging.
-# See https://docs.python.org/3/howto/logging.html#configuring-logging-for-a-library
-logging.getLogger(__name__).addHandler(logging.NullHandler())
+class tqdm(Iterable[_T]):  # noqa: N801
+    def __init__(self, iterable: Iterator[_T] = ..., desc: str = ...): ...
+    def __iter__(self) -> Iterator[_T]: ...
+    @classmethod
+    def write(
+        cls, s: str, file: Optional[TextIO] = ..., end: str = ..., nolock: bool = ...
+    ) -> None: ...

@@ -22,26 +22,17 @@ import urllib3
 from tqdm import tqdm
 
 
-# from https://github.com/tqdm/tqdm/issues/313#issuecomment-346819396
+# See https://github.com/tqdm/tqdm/issues/313#issuecomment-346819396
 class TqdmStream:
     @classmethod
-    def write(cls, msg):
+    def write(cls, msg: str) -> None:
         tqdm.write(msg, end="")
 
 
-def setup_logging(level: str):
-    numeric_level = getattr(logging, level)
-
+def setup_logging(level: int) -> None:
     logging.basicConfig(
-        format="{asctime} {levelname}({name}): {message}",
-        style="{",
-        level=numeric_level,
-        stream=TqdmStream,
+        format="%(asctime)s %(levelname)1.1s [ %(name)-31s ] %(message)s", level=level
     )
 
-    if numeric_level == logging.DEBUG:
-        getLogger(elasticsearch.__name__).setLevel(logging.INFO)
-        getLogger(urllib3.__name__).setLevel(logging.INFO)
-    else:
-        getLogger(elasticsearch.__name__).setLevel(logging.WARN)
-        getLogger(urllib3.__name__).setLevel(logging.WARN)
+    getLogger(elasticsearch.__name__).setLevel(logging.INFO)
+    getLogger(urllib3.__name__).setLevel(logging.INFO)

@@ -14,19 +14,28 @@
 # limitations under the License.
 #
 
-import logging
+from argparse import ArgumentParser
+from typing import Sequence
 
-__version__ = "dev"
-try:
-    from .version import __version__
-except ImportError:
-    pass
+from .._command import _Command
 
-__version_info__ = tuple(
-    (int(part) if part.isdigit() else part)
-    for part in __version__.split(".", maxsplit=4)
-)
 
-# Don't show log messages in applications that don't configure logging.
-# See https://docs.python.org/3/howto/logging.html#configuring-logging-for-a-library
-logging.getLogger(__name__).addHandler(logging.NullHandler())
+class _DownloadPushshiftRedditCommand(_Command):
+    @classmethod
+    def command(cls) -> str:
+        return "download-pushshift"
+
+    @classmethod
+    def aliases(cls) -> Sequence[str]:
+        return ["dl"]
+
+    @classmethod
+    def description(cls) -> str:
+        return "Download the Pushshift Reddit dump."
+
+    @classmethod
+    def config_argparser(cls, argparser: ArgumentParser) -> None:
+        pass
+
+    def run(self) -> None:
+        pass
