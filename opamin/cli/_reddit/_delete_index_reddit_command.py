@@ -17,25 +17,32 @@
 from argparse import ArgumentParser
 from typing import Sequence
 
+from overrides import overrides
+
 from .._command import _Command
 
 
 class _DeleteIndexRedditCommand(_Command):
     @classmethod
+    @overrides
     def command(cls) -> str:
         return "delete-index"
 
     @classmethod
+    @overrides
     def aliases(cls) -> Sequence[str]:
         return ["di", "del"]
 
     @classmethod
+    @overrides
     def description(cls) -> str:
         return "Delete the Elasticsearch Reddit Index"
 
     @classmethod
+    @overrides
     def config_argparser(cls, argparser: ArgumentParser) -> None:
         pass
 
+    @overrides
     def run(self) -> None:
         pass

@@ -15,25 +15,31 @@
 #
 
 import hashlib
+from http import HTTPStatus
 from io import BytesIO
-from logging import getLogger
+from logging import Logger, getLogger
 from pathlib import Path
 from typing import BinaryIO, Union
 
 import requests
 from tqdm import tqdm
+from typing_extensions import Final
 
-import opamin
+from ..errors import FileNotOnServerError
+
+LOGGER: Final[Logger] = getLogger(__name__)
 
 
 # Adapted from: https://stackoverflow.com/a/37573701/211404
-def download_file_with_progressbar(
-    url: str, dest: Path, description: str = None
-) -> None:
-    logger = getLogger(opamin.__name__)
-    logger.debug('Downloading url "{}" to file "{}"...'.format(url, dest))
-
+def download_file_with_progressbar(url: str, dest: Path, description: str,) -> None:
     response = requests.get(url, stream=True)
+    if response.status_code != HTTPStatus.OK.value:
+        status = HTTPStatus(response.status_code)
+        raise FileNotOnServerError(
+            f"Unexpected status code {status.value} {status.name}."
+        )
+
+    LOGGER.debug(f"Downloading url '{url}' to file '{dest}'...")
 
     total_size = int(response.headers.get("content-length", 0))
     chunk_size = 2 ** 12  # 4 Kib
@@ -47,23 +53,19 @@ def download_file_with_progressbar(
             progress_bar.update(len(chunk))
 
     if total_size != 0 and total_size != wrote_bytes:
-        logger.warning(
-            "  Downloaded file size mismatch, expected {} bytes "
-            "got {} bytes.".format(total_size, wrote_bytes)
+        LOGGER.warning(
+            f"  Downloaded file size mismatch, expected {total_size} bytes got "
+            f"{wrote_bytes} bytes."
         )
 
 
 def sha256sum(file: Union[Path, BinaryIO, BytesIO]) -> str:
-    logger = getLogger(opamin.__name__)
+    if isinstance(file, Path):
+        fd = file.open("rb")
+    else:
+        fd = file
 
-    fd = file
     try:
-        if isinstance(file, Path):
-            logger.debug('Calculating checksum of file "{}".'.format(file))
-            fd = file.open("rb")
-        else:
-            logger.debug("Calculating checksum of binary buffer.")
-
         # Taken from: https://stackoverflow.com/a/44873382/211404
         h = hashlib.sha256()
         for buffer in iter(lambda: fd.read(128 * 1024), b""):

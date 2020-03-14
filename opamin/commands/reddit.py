@@ -22,7 +22,6 @@ from json import JSONDecodeError
 from pathlib import Path
 from typing import Generator, List
 
-import requests
 from elasticsearch.exceptions import NotFoundError
 from elasticsearch.helpers import bulk
 from tqdm import tqdm
@@ -30,7 +29,6 @@ from tqdm import tqdm
 from opamin.commands.command import Command
 from opamin.data.reddit import RedditPost, configure_reddit_index, reddit_index
 from opamin.util.compression import DecompressingTextIOWrapper
-from opamin.util.download import download_file_with_progressbar, sha256sum
 from opamin.util.elasticsearch import connect_elasticsearch
 
 
@@ -45,88 +43,6 @@ class CommandReddit(Command):
 
     def run(self) -> None:
         pass
-
-
-class CommandDownloadPushshift(CommandReddit):
-    command: str = "download-pusshift"
-    aliases: List[str] = ["dl"]
-    description: str = "Download the Pushshift Reddit dump."
-
-    url_link_checksums = "https://files.pushshift.io/reddit/submissions/sha256sums.txt"
-    url_comment_checksums = "https://files.pushshift.io/reddit/comments/sha256sum.txt"
-
-    @classmethod
-    def config_argparser(cls, argparser: ArgumentParser) -> None:
-        pass
-
-    def run(self) -> None:
-        data_dir = Path(self.config["data"]["pushshift-path"])
-        data_dir.mkdir(parents=True, exist_ok=True)
-
-        link_checksums = requests.get(self.url_link_checksums).content.decode("ascii")
-        comment_checksums = requests.get(self.url_comment_checksums).content.decode(
-            "ascii"
-        )
-
-        for line in (link_checksums + comment_checksums).splitlines():
-            if not line:
-                continue
-
-            checksum, filename = line.split("  ")
-
-            if filename.startswith("RS"):
-                url = self.url_link_checksums
-            elif filename.startswith("RC"):
-                url = self.url_comment_checksums
-            else:
-                self.logger.error(
-                    'Could not decode file type from name: "{}". '
-                    "Skipping.".format(filename)
-                )
-                continue
-            url = url[: url.rfind("/") + 1] + filename
-
-            downloading_file = data_dir / (filename + ".downloading")
-            target_file = data_dir / filename
-
-            if target_file.exists():
-                self.logger.debug(
-                    'Download of file "{}" seems to have '
-                    "succeeded, skipping.".format(target_file)
-                )
-                continue
-
-            if downloading_file.exists():
-                self.logger.info(
-                    'Download of file "{}" seems to have '
-                    "partially stopped.".format(target_file)
-                )
-                c = sha256sum(downloading_file)
-                if c != checksum:
-                    self.logger.warning(
-                        '  Calculated checksum "{}" do not '
-                        'match expected checksum "{}". '
-                        "Deleting file.".format(c, checksum)
-                    )
-                    downloading_file.unlink()
-                else:
-                    self.logger.info("  Checksums match, download was " "successful.")
-                    downloading_file.rename(target_file)
-                    continue
-
-            download_file_with_progressbar(url, downloading_file, filename)
-
-            c = sha256sum(downloading_file)
-            if c != checksum:
-                self.logger.error(
-                    '  Calculated checksum "{}" does not '
-                    'match expected checksum "{}". Please check '
-                    "this manually or rerun the program after "
-                    "completion.".format(c, checksum)
-                )
-                continue
-
-            downloading_file.rename(target_file)
 
 
 class CommandRedditDeleteIndex(CommandReddit):

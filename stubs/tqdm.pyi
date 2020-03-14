@@ -14,13 +14,26 @@
 # limitations under the License.
 #
 
-from typing import Iterable, Iterator, Optional, TextIO, TypeVar
+from __future__ import annotations
+
+from typing import ContextManager, Iterable, Iterator, Optional, TextIO, TypeVar, Union
 
 _T = TypeVar("_T")
 
-class tqdm(Iterable[_T]):  # noqa: N801
-    def __init__(self, iterable: Iterator[_T] = ..., desc: str = ...): ...
+class tqdm(Iterable[_T], ContextManager[tqdm[None]]):  # noqa: N801
+    # Using T_=None for ContextManager so that tqdm() can be called without specifying a
+    # type. Not sure exactly why that works.
+    def __init__(
+        self,
+        iterable: Iterator[_T] = ...,
+        desc: str = ...,
+        total: Union[int, float] = ...,
+        unit: str = ...,
+        unit_scale: Union[bool, int, float] = ...,
+        unit_divisor: float = ...,
+    ): ...
     def __iter__(self) -> Iterator[_T]: ...
+    def update(self, n: Union[int, float] = ...) -> None: ...
     @classmethod
     def write(
         cls, s: str, file: Optional[TextIO] = ..., end: str = ..., nolock: bool = ...

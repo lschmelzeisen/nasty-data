@@ -18,23 +18,29 @@ from argparse import ArgumentParser
 from pathlib import Path
 from typing import Sequence
 
+from overrides import overrides
+
 from .._command import _Command
 
 
 class _IndexFileRedditCommand(_Command):
     @classmethod
+    @overrides
     def command(cls) -> str:
         return "index-file"
 
     @classmethod
+    @overrides
     def aliases(cls) -> Sequence[str]:
         return ["if", "index"]
 
     @classmethod
+    @overrides
     def description(cls) -> str:
         return "Add all Reddit posts in a given file to Elasticsearch index."
 
     @classmethod
+    @overrides
     def config_argparser(cls, argparser: ArgumentParser) -> None:
         argparser.add_argument(
             "file",
@@ -43,5 +49,6 @@ class _IndexFileRedditCommand(_Command):
             help="Add all Reddit posts in a given file to Elasticsearch index.",
         )
 
+    @overrides
     def run(self) -> None:
         pass

@@ -17,19 +17,24 @@
 from argparse import ArgumentParser
 from typing import Sequence
 
+from overrides import overrides
+
 from .._command import _Command
 
 
 class _ConfigureIndexRedditCommand(_Command):
     @classmethod
+    @overrides
     def command(cls) -> str:
         return "configure-index"
 
     @classmethod
+    @overrides
     def aliases(cls) -> Sequence[str]:
         return ["ci", "conf"]
 
     @classmethod
+    @overrides
     def description(cls) -> str:
         return (
             "Create the Elasticsearch Reddit index if necessary and configure mappings "
@@ -37,8 +42,10 @@ class _ConfigureIndexRedditCommand(_Command):
         )
 
     @classmethod
+    @overrides
     def config_argparser(cls, argparser: ArgumentParser) -> None:
         pass
 
+    @overrides
     def run(self) -> None:
         pass
