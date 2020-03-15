@@ -31,7 +31,7 @@ LOGGER: Final[Logger] = getLogger(__name__)
 
 
 # Adapted from: https://stackoverflow.com/a/37573701/211404
-def download_file_with_progressbar(url: str, dest: Path, description: str,) -> None:
+def download_file_with_progressbar(url: str, dest: Path, description: str) -> None:
     response = requests.get(url, stream=True)
     if response.status_code != HTTPStatus.OK.value:
         status = HTTPStatus(response.status_code)

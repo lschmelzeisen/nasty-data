@@ -34,8 +34,9 @@ from ._command import _Command
 from ._reddit._configure_index_reddit_command import _ConfigureIndexRedditCommand
 from ._reddit._delete_index_reddit_command import _DeleteIndexRedditCommand
 from ._reddit._download_pushshift_reddit_command import _DownloadPushshiftRedditCommand
-from ._reddit._index_file_reddit_command import _IndexFileRedditCommand
+from ._reddit._index_file_reddit_command import _IndexDumpRedditCommand
 from ._reddit._reddit_command import _RedditCommand
+from ._reddit._sample_pushshift_reddit_command import _SamplePushshiftRedditCommand
 
 LOGGER: Final[Logger] = getLogger(__name__)
 
@@ -57,8 +58,9 @@ def _load_args(argv: Sequence[str]) -> _Command:
             _Command: [_RedditCommand],
             _RedditCommand: [
                 _DownloadPushshiftRedditCommand,
+                _SamplePushshiftRedditCommand,
                 _ConfigureIndexRedditCommand,
-                _IndexFileRedditCommand,
+                _IndexDumpRedditCommand,
                 _DeleteIndexRedditCommand,
             ],
         },

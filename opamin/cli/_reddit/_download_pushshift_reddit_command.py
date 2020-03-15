@@ -72,7 +72,7 @@ def _advance_date_by_one_month(current_date: date) -> date:
 
 
 def _download_dumps(
-    type_: DumpType, since: Optional[date], until: Optional[date], target_dir: Path,
+    type_: DumpType, since: Optional[date], until: Optional[date], pushshift_dir: Path,
 ) -> None:
     LOGGER.info(
         f"Download Pushshift dumps of Reddit {type_.name.lower()} "
@@ -80,12 +80,12 @@ def _download_dumps(
     )
 
     checksums = _download_checkums(type_)
-    Path.mkdir(target_dir, parents=True, exist_ok=True)
+    Path.mkdir(pushshift_dir, parents=True, exist_ok=True)
 
     current_date = since or EARLIEST_SINCE[type_]
     while True:
         try:
-            _download_dump(type_, current_date, checksums, target_dir)
+            _download_dump(type_, current_date, checksums, pushshift_dir)
         except FileNotOnServerError:
             # No dump available for selected date range.
             if since == current_date or until:
@@ -98,7 +98,10 @@ def _download_dumps(
 
 
 def _download_dump(
-    type_: DumpType, current_date: date, checksums: Mapping[str, str], target_dir: Path,
+    type_: DumpType,
+    current_date: date,
+    checksums: Mapping[str, str],
+    pushshift_dir: Path,
 ) -> None:
     current_date_str = current_date.strftime("%Y-%m")
 
@@ -106,18 +109,18 @@ def _download_dump(
     # are fired, if the file already exists.
     for file_name in PUSHSHIFT_FILE_NAMES[type_]:
         file_name = file_name.format(current_date_str)
-        target_file = target_dir / file_name
-        if target_file.exists():
+        target = pushshift_dir / file_name
+        if target.exists():
             LOGGER.debug(f"File {file_name} already exists, skipping.")
             return
 
     for file_name in PUSHSHIFT_FILE_NAMES[type_]:
         file_name = file_name.format(current_date_str)
-        target_file = target_dir / file_name
-        downloading_file = target_dir / (file_name + ".downloading")
+        target = pushshift_dir / file_name
+        target_tmp = pushshift_dir / (file_name + ".tmp")
         try:
             download_file_with_progressbar(
-                PUSHSHIFT_URL[type_] + file_name, downloading_file, file_name
+                PUSHSHIFT_URL[type_] + file_name, target_tmp, file_name
             )
         except FileNotOnServerError:
             continue
@@ -133,14 +136,14 @@ def _download_dump(
     if expected_checksum is None:
         LOGGER.info(f"No checksum available for file {file_name}.")
     else:
-        checksum = sha256sum(downloading_file)
+        checksum = sha256sum(target_tmp)
         if checksum != expected_checksum:
-            downloading_file.unlink()
+            target_tmp.unlink()
             raise ChecksumsNotMatchingError(
                 f"Calculated checksum '{checksum}' does not match expected "
                 f"'{expected_checksum}'. Deleted file. Restart to try again."
             )
-    downloading_file.rename(target_file)
+    target_tmp.rename(target)
 
 
 def _download_checkums(type_: DumpType) -> Mapping[str, str]:
@@ -255,13 +258,11 @@ class _DownloadPushshiftRedditCommand(_Command):
 
     @overrides
     def run(self) -> None:
-        target_dir = Path(
-            cast(Mapping[str, Mapping[str, str]], self._config)["data"][
-                "pushshift-path"
-            ]
+        pushshift_dir = Path(
+            cast(Mapping[str, Mapping[str, str]], self._config)["data"]["pushshift-dir"]
         )
 
-        download_dumps_args = [self._args.since, self._args.until, target_dir]
+        download_dumps_args = [self._args.since, self._args.until, pushshift_dir]
         if self._args.all:
             _download_dumps(DumpType.SUBMISSIONS, *download_dumps_args)
             _download_dumps(DumpType.COMMENTS, *download_dumps_args)

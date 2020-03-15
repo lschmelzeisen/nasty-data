@@ -23,21 +23,21 @@ from overrides import overrides
 from .._command import _Command
 
 
-class _IndexFileRedditCommand(_Command):
+class _IndexDumpRedditCommand(_Command):
     @classmethod
     @overrides
     def command(cls) -> str:
-        return "index-file"
+        return "index-dump"
 
     @classmethod
     @overrides
     def aliases(cls) -> Sequence[str]:
-        return ["if", "index"]
+        return ["id", "index"]
 
     @classmethod
     @overrides
     def description(cls) -> str:
-        return "Add all Reddit posts in a given file to Elasticsearch index."
+        return "Add contents of a given Reddit dump to Elasticsearch."
 
     @classmethod
     @overrides

@@ -1,5 +1,5 @@
 [data]
-pushshift-path = 'data/pushshift'
+pushshift-dir = 'data/pushshift'
 
 [elasticsearch-secrets]
 ip = "YOUR-ELASTICSEARCH-IP-HERE"
