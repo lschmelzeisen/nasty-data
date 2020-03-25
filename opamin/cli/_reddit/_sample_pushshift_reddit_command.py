@@ -58,8 +58,14 @@ def _sample_dump(dump: Path) -> Path:
     with DecompressingTextIOWrapper(
         dump, encoding="UTF-8", progress_bar=True
     ) as fin, sample_tmp.open("w", encoding="UTF-8") as fout:
-        for line in fin:
-            post = json.loads(line)
+        for i, line in enumerate(fin):
+            # For some reason, there is at least one line (specifically,
+            # line 29876 in file RS_2011-01.bz2) that contains NUL
+            # characters at the beginning of it, which we remove with
+            # the following.
+            line = line.lstrip("\0")
+
+            post = json.loads(line.strip())
 
             keys.update(post.keys())
             if all(keys[key] > 100 for key in post.keys()):
