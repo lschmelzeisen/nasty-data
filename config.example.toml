@@ -3,6 +3,7 @@ pushshift-dir = 'data/pushshift'
 
 [elasticsearch-secrets]
 host = "YOUR-ELASTICSEARCH-IP-HERE"
+port = 9200
 user = "elastic"
 password = "YOUR-ELASTICSEARCH-PASSWORD-HERE"
 ca-crt-path = "ca.crt"
