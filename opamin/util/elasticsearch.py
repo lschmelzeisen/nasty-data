@@ -37,7 +37,7 @@ def connect_elasticsearch(config: Dict) -> Elasticsearch:
 
     logger.debug("Connecting to elasticsearch...")
     elasticsearch_connection = create_connection(
-        hosts=[c["ip"]],
+        hosts=[c["host"]],
         http_auth=(c["user"], c["password"]),
         port=9200,
         # Use SSL

@@ -19,27 +19,24 @@ from typing import Sequence
 
 from overrides import overrides
 
-from .._command import _Command
+from .._command import Command
 
 
-class _ConfigureIndexRedditCommand(_Command):
+class DeleteIndexRedditCommand(Command):
     @classmethod
     @overrides
     def command(cls) -> str:
-        return "configure-index"
+        return "delete-index"
 
     @classmethod
     @overrides
     def aliases(cls) -> Sequence[str]:
-        return ["ci", "conf"]
+        return ["di", "del"]
 
     @classmethod
     @overrides
     def description(cls) -> str:
-        return (
-            "Create the Elasticsearch Reddit index if necessary and configure mappings "
-            "and other settings."
-        )
+        return "Delete the Elasticsearch Reddit Index"
 
     @classmethod
     @overrides

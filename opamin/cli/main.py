@@ -30,13 +30,13 @@ import opamin
 
 from .._util.argparse_ import SingleMetavarHelpFormatter
 from .._util.logging_ import setup_logging
-from ._command import _Command
-from ._reddit._configure_index_reddit_command import _ConfigureIndexRedditCommand
-from ._reddit._delete_index_reddit_command import _DeleteIndexRedditCommand
-from ._reddit._download_pushshift_reddit_command import _DownloadPushshiftRedditCommand
-from ._reddit._index_file_reddit_command import _IndexDumpRedditCommand
-from ._reddit._reddit_command import _RedditCommand
-from ._reddit._sample_pushshift_reddit_command import _SamplePushshiftRedditCommand
+from ._command import Command
+from ._reddit_command.configure_index import ConfigureIndexRedditCommand
+from ._reddit_command.delete_index import DeleteIndexRedditCommand
+from ._reddit_command.download_pushshift import DownloadPushshiftRedditCommand
+from ._reddit_command.index_file import IndexDumpRedditCommand
+from ._reddit_command.reddit_command import RedditCommand
+from ._reddit_command.sample_pushshift import SamplePushshiftRedditCommand
 
 LOGGER: Final[Logger] = getLogger(__name__)
 
@@ -49,26 +49,26 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     command.run()
 
 
-def _load_args(argv: Sequence[str]) -> _Command:
+def _load_args(argv: Sequence[str]) -> Command:
     subcommands_by_command_type: Mapping[
-        Type[_Command], Sequence[Type[_Command]]
+        Type[Command], Sequence[Type[Command]]
     ] = defaultdict(
         list,
         {
-            _Command: [_RedditCommand],
-            _RedditCommand: [
-                _DownloadPushshiftRedditCommand,
-                _SamplePushshiftRedditCommand,
-                _ConfigureIndexRedditCommand,
-                _IndexDumpRedditCommand,
-                _DeleteIndexRedditCommand,
+            Command: [RedditCommand],
+            RedditCommand: [
+                DownloadPushshiftRedditCommand,
+                SamplePushshiftRedditCommand,
+                ConfigureIndexRedditCommand,
+                IndexDumpRedditCommand,
+                DeleteIndexRedditCommand,
             ],
         },
     )
     subparser_by_command_type = {}
 
     def add_subcommands(
-        argparser: ArgumentParser, command: Type[_Command], *, prog: str, depth: int = 1
+        argparser: ArgumentParser, command: Type[Command], *, prog: str, depth: int = 1
     ) -> None:
         subcommands = subcommands_by_command_type[command]
         if not subcommands:
@@ -118,23 +118,21 @@ def _load_args(argv: Sequence[str]) -> _Command:
     # Ignoring typing on the following line because there does not seem to be a way how
     # to type this correctly yet, since _Command is an abstract class.
     # See https://github.com/python/mypy/issues/5374
-    add_subcommands(argparser, _Command, prog="opamin")  # type: ignore
+    add_subcommands(argparser, Command, prog="opamin")  # type: ignore
     _config_general_args(argparser)
 
     args = argparser.parse_args(argv)
 
     numeric_log_level = getattr(logging, args.log_level)
     setup_logging(numeric_log_level)
-    LOGGER.debug("Opamin version: {}".format(opamin.__version__))
-    LOGGER.debug("Raw arguments: {}".format(argv))
-    LOGGER.debug("Parsed arguments: {}".format(vars(args)))
-    LOGGER.debug(
-        "Parsed command {}.{}".format(args.command.__module__, args.command.__name__)
-    )
+    LOGGER.debug(f"Opamin version: {opamin.__version__}")
+    LOGGER.debug(f"Raw arguments: {argv}")
+    LOGGER.debug(f"Parsed arguments: {vars(args)}")
+    LOGGER.debug(f"Parsed command {args.command.__module__}.{args.command.__name__}")
 
     config = _load_config(args.config, argparser)
 
-    command: _Command = args.command(args, config)
+    command: Command = args.command(args, config)
     command.validate_arguments(subparser_by_command_type[args.command])
 
     return command
@@ -182,11 +180,11 @@ def _config_general_args(argparser: ArgumentParser) -> None:
 def _load_config(path: Path, argparser: ArgumentParser) -> Mapping[str, object]:
     if not path.exists():
         argparser.error(
-            "Could not find config file in '{}'. Make sure you copy the example config "
-            "file to this location and set your personal settings/secrets.".format(path)
+            f"Could not find config file in '{path}'. Make sure you copy the example"
+            "config file to this location and set your personal settings/secrets."
         )
 
-    LOGGER.debug("Loading config from '{}'...".format(path))
+    LOGGER.debug(f"Loading config from '{path}'...")
     with path.open(encoding="UTF-8") as fin:
         config = toml.load(fin)
 

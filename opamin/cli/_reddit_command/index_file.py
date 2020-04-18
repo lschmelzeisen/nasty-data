@@ -15,33 +15,39 @@
 #
 
 from argparse import ArgumentParser
+from pathlib import Path
 from typing import Sequence
 
 from overrides import overrides
 
-from .._command import _Command
+from .._command import Command
 
 
-class _RedditCommand(_Command):
+class IndexDumpRedditCommand(Command):
     @classmethod
     @overrides
     def command(cls) -> str:
-        return "reddit"
+        return "index-dump"
 
     @classmethod
     @overrides
     def aliases(cls) -> Sequence[str]:
-        return ["r"]
+        return ["id", "index"]
 
     @classmethod
     @overrides
     def description(cls) -> str:
-        return "Operations related to Reddit data."
+        return "Add contents of a given Reddit dump to Elasticsearch."
 
     @classmethod
     @overrides
     def config_argparser(cls, argparser: ArgumentParser) -> None:
-        pass
+        argparser.add_argument(
+            "file",
+            metavar="<FILE>",
+            type=Path,
+            help="Add all Reddit posts in a given file to Elasticsearch index.",
+        )
 
     @overrides
     def run(self) -> None:

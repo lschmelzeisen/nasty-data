@@ -24,7 +24,7 @@ from overrides import overrides
 from typing_extensions import Final
 
 from ..._util.compression import DecompressingTextIOWrapper
-from .._command import _Command
+from .._command import Command
 
 LOGGER: Final[Logger] = getLogger(__name__)
 
@@ -74,14 +74,14 @@ def _sample_dump(dump: Path) -> Path:
 
                 fout.write(json.dumps(post) + "\n")
             except Exception:
-                LOGGER.error(f"Error in line {i} of file {dump}.")
+                LOGGER.error(f"Error in line {i} of file '{dump}'.")
                 raise
 
     sample_tmp.rename(sample)
     return sample
 
 
-class _SamplePushshiftRedditCommand(_Command):
+class SamplePushshiftRedditCommand(Command):
     @classmethod
     @overrides
     def command(cls) -> str:

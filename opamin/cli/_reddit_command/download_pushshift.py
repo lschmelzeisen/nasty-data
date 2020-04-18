@@ -28,7 +28,7 @@ from typing_extensions import Final
 
 from ..._util.download import download_file_with_progressbar, sha256sum
 from ...errors import ChecksumsNotMatchingError, FileNotOnServerError
-from .._command import _Command
+from .._command import Command
 
 LOGGER: Final[Logger] = getLogger(__name__)
 
@@ -159,7 +159,7 @@ def _download_checkums(type_: DumpType) -> Mapping[str, str]:
     return checksums
 
 
-class _DownloadPushshiftRedditCommand(_Command):
+class DownloadPushshiftRedditCommand(Command):
     @classmethod
     @overrides
     def command(cls) -> str:
@@ -191,9 +191,7 @@ class _DownloadPushshiftRedditCommand(_Command):
             type=str,
             choices=[type_.name for type_ in DumpType],
             default=None,
-            help="Type of dump ({}).".format(
-                " or ".join(type_.name for type_ in DumpType)
-            ),
+            help=f"Type of dump ({' or '.join(type_.name for type_ in DumpType)}).",
         )
         g.add_argument(
             "-s",
@@ -241,19 +239,17 @@ class _DownloadPushshiftRedditCommand(_Command):
                 self._args.type == DumpType.SUBMISSIONS.name
                 and self._args.until < EARLIEST_SINCE[DumpType.SUBMISSIONS]
             ):
+                earliest = EARLIEST_SINCE[DumpType.SUBMISSIONS].strftime("%Y-%m")
                 argparser.error(
-                    "-u (--until) date must not be before '{}' for SUBMISSIONS.".format(
-                        EARLIEST_SINCE[DumpType.SUBMISSIONS].strftime("%Y-%m")
-                    )
+                    f"-u (--until) date must not be before {earliest} for SUBMISSIONS."
                 )
             elif (
                 self._args.type == DumpType.COMMENTS.name
                 and self._args.until < EARLIEST_SINCE[DumpType.COMMENTS]
             ):
+                earliest = EARLIEST_SINCE[DumpType.COMMENTS].strftime("%Y-%m")
                 argparser.error(
-                    "-u (--until) date must not be before '{}' for COMMENTS.".format(
-                        EARLIEST_SINCE[DumpType.COMMENTS].strftime("%Y-%m")
-                    )
+                    f"-u (--until) date must not be before {earliest} for COMMENTS."
                 )
 
     @overrides

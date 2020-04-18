@@ -20,7 +20,7 @@ from argparse import ArgumentParser
 from typing import Mapping, Sequence
 
 
-class _Command(ABC):
+class Command(ABC):
     @classmethod
     @abstractmethod
     def command(cls) -> str:
