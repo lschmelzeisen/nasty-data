@@ -67,7 +67,7 @@ def _yyyy_mm_date(string: str) -> date:
 
 
 def _advance_date_by_one_month(current_date: date) -> date:
-    tmp = current_date + timedelta(days=32)  # Enough dates to surely reach next month.
+    tmp = current_date + timedelta(days=32)  # Enough days to surely reach next month.
     return tmp.replace(day=1)
 
 

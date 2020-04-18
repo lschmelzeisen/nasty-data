@@ -38,7 +38,7 @@ def _sample_dumps(pushshift_dir: Path) -> None:
             continue
         samples.append(_sample_dump(dump))
 
-    LOGGER.info("Aggregating individual samples.")
+    LOGGER.info("Concatenating individual samples.")
     with (pushshift_dir / "all.sample").open("w", encoding="UTF-8") as fout:
         for sample in samples:
             with sample.open("r", encoding="UTF-8") as fin:
@@ -54,24 +54,28 @@ def _sample_dump(dump: Path) -> Path:
 
     keys = Counter[str]()
 
-    sample_tmp = dump.parent / (dump.name + ".sample.tmp")
+    sample_tmp = sample.parent / (sample.name + ".tmp")
     with DecompressingTextIOWrapper(
         dump, encoding="UTF-8", progress_bar=True
     ) as fin, sample_tmp.open("w", encoding="UTF-8") as fout:
         for i, line in enumerate(fin):
-            # For some reason, there is at least one line (specifically,
-            # line 29876 in file RS_2011-01.bz2) that contains NUL
-            # characters at the beginning of it, which we remove with
-            # the following.
-            line = line.lstrip("\0")
+            try:
+                # For some reason, there is at least one line (specifically,
+                # line 29876 in file RS_2011-01.bz2) that contains NUL
+                # characters at the beginning of it, which we remove with
+                # the following.
+                line = line.lstrip("\0")
 
-            post = json.loads(line.strip())
+                post = json.loads(line.strip())
 
-            keys.update(post.keys())
-            if all(keys[key] > 100 for key in post.keys()):
-                continue
+                keys.update(post.keys())
+                if all(keys[key] > 100 for key in post.keys()):
+                    continue
 
-            fout.write(json.dumps(post) + "\n")
+                fout.write(json.dumps(post) + "\n")
+            except Exception:
+                LOGGER.error(f"Error in line {i} of file {dump}.")
+                raise
 
     sample_tmp.rename(sample)
     return sample

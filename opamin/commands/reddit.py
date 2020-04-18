@@ -28,7 +28,7 @@ from tqdm import tqdm
 
 from opamin._util.compression import DecompressingTextIOWrapper
 from opamin.commands.command import Command
-from opamin.data.reddit import RedditPost, configure_reddit_index, reddit_index
+from opamin.data.reddit_old import RedditPost, configure_reddit_index, reddit_index
 from opamin.util.elasticsearch import connect_elasticsearch
 
 
