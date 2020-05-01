@@ -24,7 +24,7 @@ from typing_extensions import Final
 LOGGER: Final[Logger] = getLogger(__name__)
 
 
-def register_elasticsearch_connection(config: Mapping[str, object]) -> None:
+def establish_elasticsearch_connection(config: Mapping[str, object]) -> None:
     c = cast(Mapping[str, object], config["elasticsearch-secrets"])  # Shortcut alias.
     host = cast(str, c["host"])
     port = cast(int, c["port"])

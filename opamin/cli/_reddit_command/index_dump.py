@@ -15,37 +15,43 @@
 #
 
 from argparse import ArgumentParser
+from pathlib import Path
 from typing import Sequence
 
 from overrides import overrides
 
+from ..._util.elasticsearch import establish_elasticsearch_connection
+from ...data.reddit import ensure_reddit_index_available
 from .._command import Command
 
 
-class ConfigureIndexRedditCommand(Command):
+class IndexDumpRedditCommand(Command):
     @classmethod
     @overrides
     def command(cls) -> str:
-        return "configure-index"
+        return "index-dump"
 
     @classmethod
     @overrides
     def aliases(cls) -> Sequence[str]:
-        return ["ci", "conf"]
+        return ["id", "index"]
 
     @classmethod
     @overrides
     def description(cls) -> str:
-        return (
-            "Create the Elasticsearch Reddit index if necessary and configure mappings "
-            "and other settings."
-        )
+        return "Add contents of a given Reddit dump to Elasticsearch."
 
     @classmethod
     @overrides
     def config_argparser(cls, argparser: ArgumentParser) -> None:
-        pass
+        argparser.add_argument(
+            "file",
+            metavar="<FILE>",
+            type=Path,
+            help="Add all Reddit posts in a given file to Elasticsearch index.",
+        )
 
     @overrides
     def run(self) -> None:
-        pass
+        establish_elasticsearch_connection(self._config)
+        ensure_reddit_index_available()

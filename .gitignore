@@ -26,9 +26,9 @@ tests-report.html
 .venv/
 
 # Project specific generated files
-opamin/version.py
-data/
-ca.crt
+/opamin/version.py
+/data/
+/ca.crt
 
 # Config file with secrets
-config.toml
+/config.toml
