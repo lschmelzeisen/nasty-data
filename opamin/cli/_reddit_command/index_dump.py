@@ -15,14 +15,18 @@
 #
 
 from argparse import ArgumentParser
+from logging import Logger, getLogger
 from pathlib import Path
 from typing import Sequence
 
 from overrides import overrides
+from typing_extensions import Final
 
 from ..._util.elasticsearch import establish_elasticsearch_connection
-from ...data.reddit import ensure_reddit_index_available
+from ...data.reddit import ensure_reddit_index_available, load_reddit_posts_from_dump
 from .._command import Command
+
+LOGGER: Final[Logger] = getLogger(__name__)
 
 
 class IndexDumpRedditCommand(Command):
@@ -55,3 +59,12 @@ class IndexDumpRedditCommand(Command):
     def run(self) -> None:
         establish_elasticsearch_connection(self._config)
         ensure_reddit_index_available()
+
+        # TODO: implement bulk loading
+        # TODO: find out if there is a lib that logs asserts better
+        # TODO: can ES coerce int/float into Date? A: possibly w/ "format" param
+        # TODO: check if _source exclusion is sensible for log-in/mod fields
+        #   https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-source-field.html#include-exclude
+
+        for post in load_reddit_posts_from_dump(self._args.file):
+            post.save()

@@ -34,25 +34,25 @@ LOGGER: Final[Logger] = getLogger(__name__)
 
 
 class DumpType(Enum):
-    SUBMISSIONS = enum.auto()
+    LINKS = enum.auto()
     COMMENTS = enum.auto()
 
 
 PUSHSHIFT_URL = {
-    DumpType.SUBMISSIONS: "https://files.pushshift.io/reddit/submissions/",
+    DumpType.LINKS: "https://files.pushshift.io/reddit/submissions/",
     DumpType.COMMENTS: "https://files.pushshift.io/reddit/comments/",
 }
 PUSHSHIFT_SHA256SUMS_URL = {
-    DumpType.SUBMISSIONS: PUSHSHIFT_URL[DumpType.SUBMISSIONS] + "sha256sums.txt",
+    DumpType.LINKS: PUSHSHIFT_URL[DumpType.LINKS] + "sha256sums.txt",
     DumpType.COMMENTS: PUSHSHIFT_URL[DumpType.COMMENTS] + "sha256sum.txt",
 }
 PUSHSHIFT_FILE_NAMES = {
     # File names ordered after preference.
-    DumpType.SUBMISSIONS: ["RS_{}.zst", "RS_{}.xz", "RS_{}.bz2", "RS_v2_{}.xz"],
+    DumpType.LINKS: ["RS_{}.zst", "RS_{}.xz", "RS_{}.bz2", "RS_v2_{}.xz"],
     DumpType.COMMENTS: ["RC_{}.zst", "RC_{}.xz", "RC_{}.bz2"],
 }
 EARLIEST_SINCE = {
-    DumpType.SUBMISSIONS: date(year=2005, month=6, day=1),
+    DumpType.LINKS: date(year=2005, month=6, day=1),
     DumpType.COMMENTS: date(year=2005, month=12, day=1),
 }
 
@@ -236,12 +236,12 @@ class DownloadPushshiftRedditCommand(Command):
                         "-u (--until) date must not be before -s (--since) date."
                     )
             elif (
-                self._args.type == DumpType.SUBMISSIONS.name
-                and self._args.until < EARLIEST_SINCE[DumpType.SUBMISSIONS]
+                self._args.type == DumpType.LINKS.name
+                and self._args.until < EARLIEST_SINCE[DumpType.LINKS]
             ):
-                earliest = EARLIEST_SINCE[DumpType.SUBMISSIONS].strftime("%Y-%m")
+                earliest = EARLIEST_SINCE[DumpType.LINKS].strftime("%Y-%m")
                 argparser.error(
-                    f"-u (--until) date must not be before {earliest} for SUBMISSIONS."
+                    f"-u (--until) date must not be before {earliest} for LINKS."
                 )
             elif (
                 self._args.type == DumpType.COMMENTS.name
@@ -260,7 +260,7 @@ class DownloadPushshiftRedditCommand(Command):
 
         download_dumps_args = [self._args.since, self._args.until, pushshift_dir]
         if self._args.all:
-            _download_dumps(DumpType.SUBMISSIONS, *download_dumps_args)
+            _download_dumps(DumpType.LINKS, *download_dumps_args)
             _download_dumps(DumpType.COMMENTS, *download_dumps_args)
         else:
             type_ = DumpType[self._args.type]

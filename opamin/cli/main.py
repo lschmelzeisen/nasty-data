@@ -31,7 +31,6 @@ import opamin
 from .._util.argparse_ import SingleMetavarHelpFormatter
 from .._util.logging_ import setup_logging
 from ._command import Command
-from ._reddit_command.delete_index import DeleteIndexRedditCommand
 from ._reddit_command.download_pushshift import DownloadPushshiftRedditCommand
 from ._reddit_command.index_dump import IndexDumpRedditCommand
 from ._reddit_command.migrate_index import MigrateIndexRedditCommand
@@ -61,7 +60,6 @@ def _load_args(argv: Sequence[str]) -> Command:
                 SamplePushshiftRedditCommand,
                 MigrateIndexRedditCommand,
                 IndexDumpRedditCommand,
-                DeleteIndexRedditCommand,
             ],
         },
     )

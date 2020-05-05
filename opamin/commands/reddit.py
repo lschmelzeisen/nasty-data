@@ -28,7 +28,7 @@ from tqdm import tqdm
 
 from opamin._util.compression import DecompressingTextIOWrapper
 from opamin.commands.command import Command
-from opamin.data.reddit_old import RedditPost, configure_reddit_index, reddit_index
+from opamin.data.reddit_old import RedditPost, reddit_index
 from opamin.util.elasticsearch import connect_elasticsearch
 
 
@@ -62,26 +62,6 @@ class CommandRedditDeleteIndex(CommandReddit):
             reddit_index.delete()
         except NotFoundError:
             self.logger.warn("No Elasticsearch Reddit index to delete.")
-        self.logger.debug("Done.")
-
-
-class CommandRedditConfigureIndex(CommandReddit):
-    command: str = "configure-index"
-    aliases: List[str] = ["ci", "conf"]
-    description: str = (
-        "Create the Elasticsearch Reddit index if necessary and configure mappings and "
-        "other settings."
-    )
-
-    @classmethod
-    def config_argparser(cls, argparser: ArgumentParser) -> None:
-        pass
-
-    def run(self) -> None:
-        connect_elasticsearch(self.config)
-
-        self.logger.debug("Configuring Elasticsearch Reddit index...")
-        configure_reddit_index()
         self.logger.debug("Done.")
 
 

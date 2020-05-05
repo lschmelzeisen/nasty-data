@@ -23,7 +23,7 @@ from typing import Counter, Mapping, Sequence, cast
 from overrides import overrides
 from typing_extensions import Final
 
-from ..._util.compression import DecompressingTextIOWrapper
+from ...data.reddit import load_reddit_dicts_from_dump
 from .._command import Command
 
 LOGGER: Final[Logger] = getLogger(__name__)
@@ -55,27 +55,13 @@ def _sample_dump(dump: Path) -> Path:
     keys = Counter[str]()
 
     sample_tmp = sample.parent / (sample.name + ".tmp")
-    with DecompressingTextIOWrapper(
-        dump, encoding="UTF-8", progress_bar=True
-    ) as fin, sample_tmp.open("w", encoding="UTF-8") as fout:
-        for i, line in enumerate(fin):
-            try:
-                # For some reason, there is at least one line (specifically,
-                # line 29876 in file RS_2011-01.bz2) that contains NUL
-                # characters at the beginning of it, which we remove with
-                # the following.
-                line = line.lstrip("\0")
+    with sample_tmp.open("w", encoding="UTF-8") as fout:
+        for post in load_reddit_dicts_from_dump(dump):
+            keys.update(post.keys())
+            if all(keys[key] > 100 for key in post.keys()):
+                continue
 
-                post = json.loads(line.strip())
-
-                keys.update(post.keys())
-                if all(keys[key] > 100 for key in post.keys()):
-                    continue
-
-                fout.write(json.dumps(post) + "\n")
-            except Exception:
-                LOGGER.error(f"Error in line {i} of file '{dump}'.")
-                raise
+            fout.write(json.dumps(post) + "\n")
 
     sample_tmp.rename(sample)
     return sample

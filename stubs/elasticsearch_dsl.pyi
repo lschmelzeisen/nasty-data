@@ -79,6 +79,8 @@ class Index:
 _T_Index = Union[None, str, Index]
 _T_Document = TypeVar("_T_Document", bound="Document")
 
+class InnerDoc: ...
+
 class Document:
     _index: Index
     def __init__(self, *args: object, **kwargs: object): ...
@@ -106,8 +108,12 @@ class Document:
 class Field:
     def __init__(self, multi: bool = ..., required: bool = ...): ...
 
+class Boolean(Field): ...
+class Date(Field): ...
+class Integer(Field): ...
+
 class Keyword(Field):
-    def __init__(self, multi: bool = ..., required: bool = ...): ...
+    def __init__(self, multi: bool = ..., required: bool = ..., index: bool = ...): ...
 
 class Text(Field):
     def __init__(
@@ -119,6 +125,20 @@ class Text(Field):
         analyzer: Union[None, str, analyzer] = ...,
         fields: Optional[Mapping[str, Text]] = ...,
     ): ...
+
+_T_InnerDoc = TypeVar("_T_InnerDoc", bound=InnerDoc)
+
+class Object(Field):
+    def __init__(
+        self,
+        doc_class: Optional[Type[_T_InnerDoc]] = ...,
+        dynamic: Union[None, bool, str] = ...,
+        properties: Optional[Mapping[str, object]] = ...,
+        multi: bool = ...,
+        required: bool = ...,
+    ): ...
+
+class Nested(Object): ...
 
 class MetaField:
     def __init__(self, *args: object, **kwargs: object): ...

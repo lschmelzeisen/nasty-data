@@ -34,5 +34,7 @@ def setup_logging(level: int) -> None:
         format="%(asctime)s %(levelname)1.1s [ %(name)-31s ] %(message)s", level=level
     )
 
-    getLogger(elasticsearch.__name__).setLevel(logging.INFO)
+    # Logs all HTTP actions and URLs on INFO.
+    getLogger(elasticsearch.__name__).setLevel(logging.WARNING)
+
     getLogger(urllib3.__name__).setLevel(logging.INFO)
