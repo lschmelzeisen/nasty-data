@@ -68,23 +68,3 @@ class MigrateIndexRedditCommand(Command):
         migrate_reddit_index(move_data=self._args.move_data)
         # TODO: implement monitoring the reindexation for progress. See:
         #  https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-reindex.html#docs-reindex-task-api
-
-        # RedditLink(
-        #     type_=RedditLink.__name__, author="lukas", title="Check't out"
-        # ).save()
-        # RedditComment(
-        #     type_=RedditComment.__name__, author="sofia", body="Was geht ab?",
-        # ).save()
-        # RedditComment(
-        #     type_=RedditComment.__name__, author="peter", body="I'm Peter!",
-        # ).save()
-        #
-        # RedditPost._index.refresh()
-        #
-        # s = RedditPost.search().query()
-        # results = s.execute()
-        # print("Results:")  # noqa: T001
-        # for hit in results:
-        #     print(  # noqa: T001
-        #         "-", type(hit).__module__ + "." + type(hit).__name__, hit.to_dict(),
-        #     )

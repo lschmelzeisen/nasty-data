@@ -17,36 +17,30 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 from json import JSONDecodeError
 from logging import Logger, getLogger
-from operator import itemgetter
 from pathlib import Path
-from typing import (
-    Dict,
-    Iterator,
-    Mapping,
-    Optional,
-    Sequence,
-    Type,
-    TypeVar,
-    Union,
-    cast,
-)
+from typing import Any, Dict, Iterator, Mapping, Type, TypeVar, Union, cast
 
+import elasticsearch_dsl
 from elasticsearch import Elasticsearch
-from elasticsearch_dsl import Boolean, Date, Document
-from elasticsearch_dsl import Index as EsIndex
 from elasticsearch_dsl import (
+    Boolean,
+    Date,
+    Document,
+    Float,
+    Index,
     InnerDoc,
     Integer,
     Keyword,
-    MetaField,
+    Long,
     Nested,
     Object,
     Search,
     Text,
     analyzer,
+    char_filter,
     connections,
     token_filter,
     tokenizer,
@@ -56,15 +50,79 @@ from typing_extensions import Final
 
 from .._util.compression import DecompressingTextIOWrapper
 
+# This file contains the elasticsearch-dsl mapping for reading and writing Reddit posts
+# (specifically from the Pushshift dumps).
+#
+# It is important to note that the data format quite a bit over the years. Additionally,
+# it is very poorly documented. The following are the only sensible sources I could
+# find:
+# - https://www.reddit.com/dev/api/
+# - https://github.com/reddit-archive/reddit/wiki/JSON
+# - https://psraw.readthedocs.io/en/develop/Module/about_RedditLink/
+# - https://psraw.readthedocs.io/en/latest/Module/about_RedditComment/
+#
+# I first invested considerable time into trying to unify the data format (i.e., convert
+# legacy fields to their newer counter-parts, ident), but ultimately failed. This was,
+# because the dataset is extremely large (currently 777 GB) and it is therefore
+# practically impossible to take a development subset from it that contains all relevant
+# field / value pairs. Additionally, one has to realize that the data format will
+# probably change again in the future, and reindexing the whole dataset again would be
+# prohibitively expensive.
+#
+# Finally, I therefore went with the alternative of trying to ingest the data as
+# unmodified as possible and instead do all data unification during read access. Through
+# this, I should be able to avoid having to ever reindex the whole dataset again. And
+# because the data is then already indexed, figuring out which fields contain which
+# values under which circumstances can be done much faster and thoroughly. Of course,
+# if you are going to have very frequent read access at some point in time doing the
+# field unification before indexing would be beneficial. However, for my use case of
+# academic analysis I don't foresee this to become the case.
+#
+# One other important thing is to keep the index size from exploding. While I wanted to
+# retain as much flexibility in usage later down the line (because I don't quite know
+# what we would want to do with the data later on) I had to make a few sacrifices:
+# - I did opt for "best_compression", i.e., DEFLATE, for the index instead of the
+#   default, i.e. LZ4. While this should increase access times a bit it considerably
+#   decreases storage space requirements, and we don't anticipate frequent access
+#   anyhow.
+# - Post IDs are stored as Elasticsearch IDs so that we don't need to keep track of two
+#   different IDs in code that uses this. One direct consequence of this is, because the
+#   Pushshift dataset contains posts with the same IDs multiple times in rare cases,
+#   that we can only store one version of each post with the same ID.
+# - field.Integer was used for all numeric fields because it seemed large enough to
+#   contain all actually occurring values, and for almost all fields there are some
+#   entries in the dataset for which the next smaller type (short) would be too small
+#   (besides gilded but we kept it Integer for consistency).
+# - For analyzers we were again guided by our intended use case of extracting arguments:
+#   recall is much more important for us then precision and we basically only care about
+#   English text. For this reason we perform asciifolding and add a second analyzer that
+#   performs English stemming. Additionally, since Reddit texts may contain URLs or
+#   Email addresses we used the uax_url_email tokenizer instead of the standard one.
+#   Last, because we don't anticipate building an actual user facing UI for our copy of
+#   the Reddit dataset, we didn't pay any attention to stuff like autocompletion. One
+#   note for the future: adding more analyzers does not seem to require that much more
+#   storage space, because only the inverted index is enlarged and analyzer values are
+#   not stored per entry. For the storage space / functionality trade-off again, we set
+#   index_options='offsets' and don't enable 'index_phrases' (see experiment below).
+#   Additionally, we store term vectors for the most important
+#   Text-fields, but not for every Text field because they need considerable space.
+# - I also breifly experimented with disabling _source and enabling "store", but this
+#   did not yield a very noticeable change in index size but severely reduces stuff we
+#   can do with the data.
+
+# TODO: Data reading has not been implemted yet. Do so! Take the old code as reference:
+#   https://github.com/lschmelzeisen/opamin/blob/03b35d4005fc1642662e69672de4cd2d4ca4660e/opamin/data/reddit.py
+
 LOGGER: Final[Logger] = getLogger(__name__)
 
 INDEX_ALIAS: Final[str] = "reddit"
 INDEX_OPTIONS: Final[str] = "offsets"
 INDEX_PHRASES: Final[bool] = False
+INDEX_TERM_VECTOR: Final[str] = "no"
 
 
 def ensure_reddit_index_available() -> None:
-    if not EsIndex(INDEX_ALIAS).exists():
+    if not Index(INDEX_ALIAS).exists():
         raise Exception("Reddit Index does not exist. Run: opamin reddit migrate-index")
 
 
@@ -85,8 +143,8 @@ def migrate_reddit_index(move_data: bool = True) -> None:
     new_index_name = INDEX_ALIAS + "-" + datetime.now().strftime("%Y%m%d-%H%M%S")
     RedditPost.init(index=new_index_name)
 
-    new_index = EsIndex(new_index_name)
-    all_indices = EsIndex(INDEX_ALIAS + "-*")
+    new_index = Index(new_index_name)
+    all_indices = Index(INDEX_ALIAS + "-*")
 
     if move_data:
         # TODO: test if this works and what happens if no previous index exists.
@@ -104,13 +162,99 @@ def migrate_reddit_index(move_data: bool = True) -> None:
     new_index.put_alias(name=INDEX_ALIAS)
 
 
+def _log_field_mapping(field_mapping: Mapping[str, object], *, depth: int) -> None:
+    indent = "  " * depth
+    for line in json.dumps(field_mapping, indent=2).splitlines():
+        if line == "{" or line == "}":
+            continue
+        LOGGER.info(indent + line)
+
+
+def _recursive_mapping_diff(
+    current_mapping: Dict[str, Mapping[str, object]],
+    unaltered_mapping: Dict[str, Mapping[str, object]],
+    *,
+    depth: int = 0,
+) -> None:
+    indent = "  " * depth
+    for field, current_field_mapping in current_mapping.items():
+        unaltered_field_mapping = unaltered_mapping.pop(field, None)
+        if current_field_mapping == unaltered_field_mapping:
+            continue
+
+        if not unaltered_field_mapping:
+            LOGGER.info(indent + field + ": only exists in current dynamic mapping.")
+            LOGGER.info(f"{indent}  [current]")
+            _log_field_mapping(current_field_mapping, depth=depth + 1)
+            continue
+
+        LOGGER.info(indent + field + ":")
+        if (
+            "properties" in current_field_mapping
+            and "properties" in unaltered_field_mapping
+        ):
+            _recursive_mapping_diff(
+                cast(
+                    Dict[str, Mapping[str, object]],
+                    current_field_mapping["properties"],
+                ),
+                cast(
+                    Dict[str, Mapping[str, object]],
+                    unaltered_field_mapping["properties"],
+                ),
+                depth=depth + 1,
+            )
+        else:
+            LOGGER.info(f"{indent}  [current]")
+            _log_field_mapping(current_field_mapping, depth=depth + 1)
+            LOGGER.info(f"{indent}  [unaltered]")
+            _log_field_mapping(unaltered_field_mapping, depth=depth + 1)
+
+    for field, unaltered_field_mapping in unaltered_mapping.items():
+        LOGGER.info(indent + field + ": only exists in unaltered mapping.")
+        LOGGER.info(f"{indent}  [unaltered]")
+        _log_field_mapping(unaltered_field_mapping, depth=depth + 1)
+
+
+def debug_dynamic_mapping_difference() -> None:
+    """Log diff between current ElasticSearch mapping and the RedditPost-induced one."""
+
+    ensure_reddit_index_available()
+    current_index = Index(INDEX_ALIAS)
+
+    unaltered_index_name = "test-" + INDEX_ALIAS
+    RedditPost.init(index=unaltered_index_name)
+    unaltered_index = Index(unaltered_index_name)
+
+    current_mapping = cast(
+        Mapping[str, Mapping[str, Mapping[str, Dict[str, Mapping[str, object]]]]],
+        current_index.get_mapping(),
+    )
+    unaltered_mapping = cast(
+        Mapping[str, Mapping[str, Mapping[str, Dict[str, Mapping[str, object]]]]],
+        unaltered_index.get_mapping(),
+    )
+
+    if not current_mapping or not unaltered_mapping:
+        LOGGER.error("Could not get unaltered or current mapping.")
+        return
+
+    current_mapping = next(iter(current_mapping.values()))["mappings"]["properties"]
+    unaltered_mapping = next(iter(unaltered_mapping.values()))["mappings"]["properties"]
+    _recursive_mapping_diff(current_mapping, unaltered_mapping)
+
+    unaltered_index.delete()
+
+
 standard_uax_url_email_analyzer = analyzer(
     "standard_uax_url_email",
+    char_filter=[char_filter("html_strip")],
     tokenizer=tokenizer("uax_url_email"),
     filter=[token_filter("asciifolding"), token_filter("lowercase")],
 )
 english_uax_url_email_analyzer = analyzer(
     "english_uax_url_email",
+    char_filter=[char_filter("html_strip")],
     tokenizer=tokenizer("uax_url_email"),
     filter=[
         token_filter("asciifolding"),
@@ -124,109 +268,244 @@ english_uax_url_email_analyzer = analyzer(
 )
 
 
-class RedditLoadingError(Exception):
-    """Raised when it was impossible to load a Post."""
+class RedditDate(Date):
+    def __init__(
+        self, millis: bool = False, *args: Any, **kwargs: Any,
+    ):
+        self._millis = millis
+        super().__init__(*args, **kwargs)
+
+    @overrides
+    def _deserialize(self, data: object) -> Union[datetime, date]:
+        # In some cases, fields which are nowadays only for dates were a bool earlier.
+        # We represent those bools with special date values.
+        if isinstance(data, bool):
+            # 0001-01-01 is lowest representable date in Python.
+            return date(1, 1, 1 + int(data))
+
+        # In some cases, fields which are dates (i.e., integers) are stored as strings.
+        if isinstance(data, str):
+            data = int(data)
+
+        if isinstance(data, int) or isinstance(data, float):
+            if self._millis:
+                # Divide by a float to preserve milliseconds on the datetime.
+                data /= 1000.0
+            return datetime.utcfromtimestamp(data)
+
+        return super()._deserialize(data)
 
 
-class IncompleteDataError(RedditLoadingError):
-    """Raised for posts where data is missing that was deemed required."""
+class RedditFlairRichtext(InnerDoc):
+    a = Keyword()
+    e = Keyword()
+    t = Text(
+        index_options=INDEX_OPTIONS,
+        index_phrases=INDEX_PHRASES,
+        analyzer=standard_uax_url_email_analyzer,
+        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
+    )
+    u = Keyword(doc_values=False, index=False)
 
 
-class PromotedContentError(RedditLoadingError):
-    """Raised for posts that are promoted content."""
+class RedditAwardingResizedIcon(InnerDoc):
+    height = Integer()
+    url = Keyword(doc_values=False, index=False)
+    width = Integer()
 
 
-_T_RedditPost = TypeVar("_T_RedditPost", bound="RedditPost")
-
-
-class RedditAward(InnerDoc):
-    id = Keyword(required=True)
-    name = Keyword(required=True)
-    count = Integer(required=True)
-    award_type = Keyword(required=True)
-
-    @classmethod
-    def name_from_id(cls, award_id: str) -> str:
-        if award_id == "gid_1":
-            return "Silver"
-        elif award_id == "gid_2":
-            return "Gold"
-        elif award_id == "gid_3":
-            return "Platinum"
-        else:
-            raise ValueError(f"Unknown award id: '{award_id}'")
-
-
-class RedditCollection(InnerDoc):
-    author_id = Keyword(required=True)
-    author_name = Keyword(required=True)
-    collection_id = Keyword(required=True)
-    created_at_utc = Date(required=True)
+class RedditAwarding(InnerDoc):
+    award_type = Keyword()
+    coin_price = Integer()
+    coin_reward = Integer()
+    count = Integer()
+    days_of_drip_extension = Integer()
+    days_of_premium = Integer()
     description = Text(
         index_options=INDEX_OPTIONS,
         index_phrases=INDEX_PHRASES,
         analyzer=standard_uax_url_email_analyzer,
         fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
     )
-    display_layout = Keyword()
-    last_update_utc = Date(required=True)
-    link_ids = Keyword(required=True, multi=True)
-    permalink = Keyword()
-    subreddit_id = Keyword(required=True)
-    title = Text(
-        required=True,
-        index_options=INDEX_OPTIONS,
-        index_phrases=INDEX_PHRASES,
-        analyzer=standard_uax_url_email_analyzer,
-        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
-    )
+    end_date = RedditDate()
+    icon_height = Integer()
+    icon_url = Keyword(doc_values=False, index=False)
+    icon_width = Integer()
+    id = Keyword()
+    is_enabled = Boolean()
+    name = Keyword()
+    resized_icons = Nested(RedditAwardingResizedIcon)
+    start_date = RedditDate()
+    subreddit_coin_reward = Integer()
+    subreddit_id = Keyword()
 
 
-class RedditMediaOEmbed(InnerDoc):
-    author_name = Keyword()
-    author_url = Keyword()
-    description = Text(
-        index_options=INDEX_OPTIONS,
-        index_phrases=INDEX_PHRASES,
-        analyzer=standard_uax_url_email_analyzer,
-        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
-    )
-    html = Keyword(index=False)
-    provider_name = Keyword()
-    provider_url = Keyword()
-    thumbnail_url = Keyword()
-    title = Text(
-        index_options=INDEX_OPTIONS,
-        index_phrases=INDEX_PHRASES,
-        analyzer=standard_uax_url_email_analyzer,
-        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
-    )
-    type_ = Keyword(required=True)
-    url = Keyword()
+class RedditGildings(InnerDoc):
+    gid_1 = Integer()
+    gid_2 = Integer()
+    gid_3 = Integer()
 
 
-class RedditMediaRedditVideo(InnerDoc):
-    dash_url = Keyword()
-    duration = Integer()
-    fallback_url = Keyword()
-    hls_url = Keyword()
-    scrubber_media_url = Keyword()
-
-
-class RedditMedia(InnerDoc):
-    type_ = Keyword()  # Only exists for oembed (not for reddit_video)
-    oembed = Object(RedditMediaOEmbed)
-    reddit_video = Object(RedditMediaRedditVideo)
+class RedditMediaMetadataS(InnerDoc):
+    u = Keyword(doc_values=False, index=False)
+    x = Integer()
+    y = Integer()
+    gif = Keyword(doc_values=False, index=False)
+    mp4 = Keyword(doc_values=False, index=False)
 
 
 class RedditMediaMetadata(InnerDoc):
-    id = Keyword(required=True)
-    e = Keyword(required=True)
+    dashUrl = Keyword(doc_values=False, index=False)  # noqa: N815
+    e = Keyword()
+    hlsUrl = Keyword(doc_values=False, index=False)  # noqa: N815
+    id = Keyword(doc_values=False)
+    isGif = Boolean()  # noqa: N815
     m = Keyword()
-    s = Keyword()
+    s = Object(RedditMediaMetadataS)
+    status = Keyword()
     t = Keyword()
-    dash_url = Keyword()
-    hls_url = Keyword()
+    x = Integer()
+    y = Integer()
+
+
+class RedditLinkMediaOEmbed(InnerDoc):
+    author_name = Keyword()
+    author_url = Keyword()
+    cache_age = Long()
+    description = Text(
+        index_options=INDEX_OPTIONS,
+        index_phrases=INDEX_PHRASES,
+        analyzer=standard_uax_url_email_analyzer,
+        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
+        term_vector=INDEX_TERM_VECTOR,
+    )
+    height = Integer()
+    html = Keyword(doc_values=False, index=False)
+    html5 = Keyword(doc_values=False, index=False)
+    mean_alpha = Float()
+    provider_name = Keyword()
+    provider_url = Keyword()
+    thumbnail_height = Integer()
+    thumbnail_url = Keyword(doc_values=False, index=False)
+    thumbnail_size = Integer()
+    thumbnail_width = Integer()
+    title = Text(
+        index_options=INDEX_OPTIONS,
+        index_phrases=INDEX_PHRASES,
+        analyzer=standard_uax_url_email_analyzer,
+        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
+        term_vector=INDEX_TERM_VECTOR,
+    )
+    type = Keyword()
+    version = Keyword()
+    url = Keyword()
+    width = Integer()
+
+
+class RedditLinkMediaRedditVideo(InnerDoc):
+    dash_url = Keyword(doc_values=False, index=False)
+    duration = Integer()
+    fallback_url = Keyword(doc_values=False, index=False)
+    height = Integer()
+    hls_url = Keyword(doc_values=False, index=False)
+    is_gif = Boolean()
+    scrubber_media_url = Keyword(doc_values=False, index=False)
+    transcoding_status = Keyword()
+    width = Boolean()
+
+
+class RedditLinkMedia(InnerDoc):
+    content = Text(
+        index_options=INDEX_OPTIONS,
+        index_phrases=INDEX_PHRASES,
+        analyzer=standard_uax_url_email_analyzer,
+        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
+    )
+    event_id = Keyword()
+    height = Integer()
+    oembed = Object(RedditLinkMediaOEmbed)
+    reddit_video = Object(RedditLinkMediaRedditVideo)
+    type = Keyword()
+    width = Integer()
+
+
+class RedditLinkMediaEmbed(InnerDoc):
+    content = Text(
+        index_options=INDEX_OPTIONS,
+        index_phrases=INDEX_PHRASES,
+        analyzer=standard_uax_url_email_analyzer,
+        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
+    )
+    height = Integer()
+    media_domain_url = Keyword(doc_values=False, index=False)
+    scrolling = Boolean()
+    width = Integer()
+
+
+class RedditLinkPreviewImageResolution(InnerDoc):
+    height = Integer()
+    url = Keyword(doc_values=False, index=False)
+    width = Integer()
+
+
+class RedditLinkPreviewImageVariant(InnerDoc):
+    resolutions = Nested(RedditLinkPreviewImageResolution)
+    source = Object(RedditLinkPreviewImageResolution)
+
+
+class RedditLinkPreviewImageVariants(InnerDoc):
+    gif = Object(RedditLinkPreviewImageVariant)
+    mp4 = Object(RedditLinkPreviewImageVariant)
+    nsfw = Object(RedditLinkPreviewImageVariant)
+    obfuscated = Object(RedditLinkPreviewImageVariant)
+
+
+class RedditLinkPreviewImage(InnerDoc):
+    id = Keyword(doc_values=False, index=False)
+    resolutions = Nested(RedditLinkPreviewImageResolution)
+    source = Object(RedditLinkPreviewImageResolution)
+    variants = Object(RedditLinkPreviewImageVariants)
+
+
+class RedditLinkPreview(InnerDoc):
+    enabled = Boolean()
+    images = Nested(RedditLinkPreviewImage)
+    reddit_video_preview = Object(RedditLinkMediaRedditVideo)
+
+
+class RedditLinkCollection(InnerDoc):
+    author_id = Keyword()
+    author_name = Keyword()
+    collection_id = Keyword(doc_values=False)
+    created_at_utc = RedditDate()
+    description = Text(
+        index_options=INDEX_OPTIONS,
+        index_phrases=INDEX_PHRASES,
+        analyzer=standard_uax_url_email_analyzer,
+        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
+        term_vector=INDEX_TERM_VECTOR,
+    )
+    display_layout = Keyword()
+    last_update_utc = RedditDate()
+    link_ids = Keyword(multi=True, doc_values=False)
+    permalink = Keyword(doc_values=False, index=False)
+    subreddit_id = Keyword()
+    title = Text(
+        index_options=INDEX_OPTIONS,
+        index_phrases=INDEX_PHRASES,
+        analyzer=standard_uax_url_email_analyzer,
+        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
+        term_vector=INDEX_TERM_VECTOR,
+    )
+
+
+class RedditLinkOutboundLink(InnerDoc):
+    created = RedditDate(millis=True)
+    expiration = RedditDate(millis=True)
+    url = Keyword(doc_values=False, index=False)
+
+
+_T_RedditPost = TypeVar("_T_RedditPost", bound="RedditPost")
 
 
 class RedditPost(Document):
@@ -243,47 +522,92 @@ class RedditPost(Document):
     links has not been added (yet).
     """
 
+    # For some fields in the Reddit JSONs I could not figure out what they mean and what
+    # values they take. Some fields even always had the same value (as annotated in the
+    # following). However, this was only observed over a small sample of ~90000 posts
+    # (spanning the time from 2005 to 2019).
+
     type_ = Keyword(required=True)
 
-    created_utc = Date(required=True)
-    edited = Date()
-    retrieved_on = Date(required=True)
+    id = Keyword(doc_values=False, index=False)
+    name = Keyword(doc_values=False, index=False)
+    permalink = Keyword(doc_values=False, index=False)
 
-    author = Keyword(required=True)
-    author_flair_text = Keyword()
+    created = RedditDate()
+    created_utc = RedditDate()
+    edited = RedditDate()
+    retrieved_on = RedditDate()
+
+    author = Keyword()
+    author_cakeday = Boolean()
+    author_created_utc = RedditDate()
+    author_flair_background_color = Keyword(doc_values=False, index=False)
+    author_flair_css_class = Keyword()
+    author_flair_richtext = Nested(RedditFlairRichtext)
+    author_flair_template_id = Keyword()
+    author_flair_text = Text(
+        index_options=INDEX_OPTIONS,
+        index_phrases=INDEX_PHRASES,
+        analyzer=standard_uax_url_email_analyzer,
+        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
+    )
+    author_flair_text_color = Keyword(doc_values=False, index=False)
+    author_flair_type = Keyword()
+    author_fullname = Keyword()
+    author_id = Keyword()
+    author_patreon_flair = Keyword()
+    author_premium = Boolean()
     distinguished = Keyword()
 
-    all_awardings = Nested(RedditAward)
+    all_awardings = Nested(RedditAwarding)
+    associated_award = Keyword()  # For sample, only None if it exists.
+    awarders = Nested()  # For sample, only [] if it exists.
+    can_gild = Boolean()
+    gildings = Object(RedditGildings)
+    gilded = Integer()
+    total_awards_received = Integer()
 
+    downs = Integer()
     score = Integer()
+    score_hidden = Boolean()
+    ups = Integer()
 
-    subreddit = Keyword(required=True)
-    subreddit_id = Keyword(required=True)
+    subreddit = Keyword()
+    subreddit_name_prefixed = Keyword()
+    subreddit_id = Keyword()
+    subreddit_subscribers = Integer()
     subreddit_type = Keyword()
 
     media_metadata = Nested(RedditMediaMetadata)
 
-    archived = Boolean(required=True)
-    stickied = Boolean(required=True)
-    locked = Boolean(required=True)
-    quarantine = Boolean(required=True)
+    archived = Boolean()
+    stickied = Boolean()
+    locked = Boolean()
 
-    permalink = Keyword(required=True)
+    rte_mode = Keyword()
 
-    class Meta:
-        # Disable dynamic addition of fields, so that we get errors if we try to submit
-        # documents with fields not included in the mapping.
-        # https://www.elastic.co/guide/en/elasticsearch/reference/current/dynamic.html
-        dynamic = MetaField("strict")
+    saved = Boolean()  # For sample, always False if it exists.
+    likes = Integer()  # For sample, always None if it exists.
 
-    class Index:
-        name = INDEX_ALIAS
-        settings = {
-            "number_of_shards": 1,
-            "number_of_replicas": 0,
-            "codec": "best_compression",
-        }
-        analyzers = [standard_uax_url_email_analyzer, english_uax_url_email_analyzer]
+    mod_note = Keyword()  # For sample, always None if it exists.
+    mod_reason_by = Keyword()  # For sample, always None if it exists.
+    mod_reason_title = Keyword()  # For sample, always None if it exists.
+    approved = Boolean()
+    approved_at_utc = RedditDate()  # For sample, always None if it exists.
+    approved_by = Keyword()  # For sample, always None if it exists.
+    banned_at_utc = RedditDate()  # For sample, always None if it exists.
+    banned_by = Keyword()  # For sample, always None if it exists.
+    ban_note = Keyword()  # For sample, always None if it exists.
+    mod_reports = Nested()  # For sample, always [] if it exists.
+    num_reports = Integer()  # For sample, always None if it exists.
+    report_reasons = Keyword()  # For sample, always None if it exists.
+    user_reports = Nested()  # For sample, always [] if it exists.
+    steward_reports = Nested()  # For sample, always [] if it exists.
+
+    can_mod_post = Boolean()
+    no_follow = Boolean()
+    removal_reason = Keyword()
+    send_replies = Boolean()
 
     def __init__(self, *args: object, **kwargs: object):
         if type(self) == RedditPost:
@@ -291,7 +615,44 @@ class RedditPost(Document):
                 "Do not instantiate RedditPost directly. Use one of its subclasses:"
                 + ", ".join(subcls.__name__ for subcls in type(self).__subclasses__())
             )
-        super().__init__(*args, **kwargs)
+        super().__init__(type_=self.__class__.__name__, *args, **kwargs)
+
+    @classmethod
+    def from_dict(cls, post_dict: Mapping[str, object]) -> RedditPost:
+        # We do want to modify the caller's dict. Because we don't modify subdicts a
+        # shallow copy is enough here.
+        post_dict = dict(post_dict)
+
+        # "media_metadata" contains a mapping of arbitrary IDs to some objects. Such a
+        # mapping would result in each ID being added as its own field in Elasticsearch.
+        # Therefore we convert this to a list of the same objects. The objects already
+        # contain a field witht he same ID.
+        if post_dict.get("media_metadata"):
+            post_dict["media_metadata"] = list(
+                cast(Mapping[str, object], post_dict["media_metadata"]).values()
+            )
+
+        # "crosspost_parent_list" contains the whole JSON dict of the post this post
+        # is cross-posting somewhere. For simplicity of the data model we discard this
+        # here, at the cost of a single ID-lookup to the index should it be needed
+        # later.
+        post_dict.pop("crosspost_parent_list", None)
+
+        kind: Type[RedditPost]
+        _id = post_dict["id"]
+        assert isinstance(_id, str) and _id
+        if "title" in post_dict:
+            kind = RedditLink
+            post_dict["_id"] = "t1_" + _id
+        elif "body" in post_dict:
+            kind = RedditComment
+            post_dict["_id"] = "t3_" + _id
+        else:
+            raise ValueError(
+                "Could not determine whether given post is link or comment."
+            )
+
+        return kind(**post_dict)
 
     @classmethod
     @overrides
@@ -319,7 +680,7 @@ class RedditPost(Document):
     def search(
         cls: Type[_T_RedditPost],
         using: Union[None, str, Elasticsearch] = None,
-        index: Union[None, str, EsIndex] = None,
+        index: Union[None, str, elasticsearch_dsl.Index] = None,
     ) -> Search[_T_RedditPost]:
         """Only return hits convertible to the respective subclass in search queries."""
         if cls == RedditPost:
@@ -328,964 +689,162 @@ class RedditPost(Document):
             super().search(using=using, index=index).filter("term", type_=cls.__name__)
         )
 
+    class Index:
+        name = INDEX_ALIAS
+        settings = {
+            "number_of_shards": 1,
+            "number_of_replicas": 0,
+            "codec": "best_compression",
+        }
+        analyzers = [standard_uax_url_email_analyzer, english_uax_url_email_analyzer]
+
 
 class RedditLink(RedditPost):
+    domain = Keyword()
+    url = Keyword()
+
     title = Text(
-        required=True,
         index_options=INDEX_OPTIONS,
         index_phrases=INDEX_PHRASES,
         analyzer=standard_uax_url_email_analyzer,
         fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
+        term_vector=INDEX_TERM_VECTOR,
     )
     selftext = Text(
         index_options=INDEX_OPTIONS,
         index_phrases=INDEX_PHRASES,
         analyzer=standard_uax_url_email_analyzer,
         fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
+        term_vector=INDEX_TERM_VECTOR,
     )
-    domain = Keyword(required=True)
-    url = Keyword(required=True)
-    link_flair_text = Keyword()
+    selftext_html = Keyword(doc_values=False, index=False)
 
-    collections = Nested(RedditCollection)
-
-    media = Object(RedditMedia)
-    thumbnail = Keyword()
-
-    brand_safe = Boolean()
-    contest_mode = Boolean(required=True)
-    is_self = Boolean(required=True)
-    is_original_content = Boolean()
-    is_video = Boolean(required=True)
-    over_18 = Boolean(required=True)
-    spoiler = Boolean(required=True)
-
-    crosspost_parent = Keyword()
-    num_comments = Integer()
-    num_crossposts = Integer()
-    post_hint = Keyword()
-    suggested_sort = Keyword()
-
-    event_is_live = Boolean()
-    event_start = Date()
-    event_end = Date()
-
-    whitelist_status = Keyword()
-    parent_whitelist_status = Keyword()
-
-
-class RedditComment(RedditPost):
-    link_id = Keyword(required=True)
-    parent_id = Keyword(required=True)
-    body = Text(
-        required=True,
+    link_flair_background_color = Keyword(doc_values=False, index=False)
+    link_flair_css_class = Keyword()
+    link_flair_richtext = Nested(RedditFlairRichtext)
+    link_flair_template_id = Keyword()
+    link_flair_text = Text(
         index_options=INDEX_OPTIONS,
         index_phrases=INDEX_PHRASES,
         analyzer=standard_uax_url_email_analyzer,
         fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
     )
-    controversiality = Integer(required=True)
-    is_submitter = Boolean()
-    collapsed = Boolean()
-    collapsed_reason = Keyword()
-
-
-def parse_reddit_dict(post_dict: Mapping[str, object]) -> RedditPost:
-    # Only tested with Pushshift data.
-
-    if "promoted" in post_dict:
-        raise PromotedContentError()
-
-    # We do want to modify the caller's dict. Therefore we take a shallow copy of the
-    # dict here. In sub-functions we will do the same for child dicts. We do this
-    # instead of a deep copy here so that in each sub-function we also have original and
-    # modified dict available.
-    post_dict, orig_post_dict = dict(post_dict), post_dict
-
-    # We want to verify that this code is aware of all the different values the Reddit-
-    # JSON object contains. Therefore we remove each attribute we handle from post_dict
-    # with one of the following idioms and can thus check in the end which attributes
-    # we have not handled:
-    # - `post_dict.pop("attr")` for attributes that always exist.
-    # - `post_dict.pop("attr", None)` for attributes that sometimes exist (and
-    #   substitute with default value).
-    # - `post_dict.pop("attr") or None` to convert False-like values to a default value.
-
-    # Main objective of this function: construct dict to be send to ElasticSearch.
-    es_post: Dict[str, object] = {}
-
-    _parse_reddit_dict_id(post_dict, es_post)
-    _parse_reddit_dict_time(post_dict, es_post)
-    _parse_reddit_dict_author(post_dict, es_post)
-    _parse_reddit_dict_awards(post_dict, es_post)
-    _parse_reddit_dict_score(post_dict, es_post)
-    _parse_reddit_dict_subreddit(post_dict, es_post)
-    _parse_reddit_dict_media_metadata(post_dict, es_post)
-    _parse_reddit_dict_misc(post_dict, es_post)
-    _parse_reddit_dict_log_in_required(post_dict)
-    _parse_reddit_dict_moderator_required(post_dict)
-
-    cls: Type[RedditPost]
-    if "title" in post_dict:
-        cls = RedditLink
-        _parse_reddit_dict_link(post_dict, es_post)
-        _parse_reddit_dict_link_collections(post_dict, es_post)
-        _parse_reddit_dict_link_media(post_dict, es_post)
-        _parse_reddit_dict_link_misc(post_dict, es_post)
-        _parse_reddit_dict_link_whitelist_status(post_dict, es_post)
-        _parse_reddit_dict_link_fix_odd_data(es_post)
-    elif "body" in post_dict:
-        cls = RedditComment
-        _parse_reddit_dict_comment(post_dict, es_post)
-    else:
-        raise IncompleteDataError(
-            "Could not determine whether given post is link or comment."
-        )
-
-    # Make "permalink" into a full link for convenience (especially from Kibana).
-    assert isinstance(es_post["permalink"], str) and es_post["permalink"]
-    es_post["permalink"] = "https://www.reddit.com/" + es_post["permalink"]
-
-    # TODO: replace these with actual logging / error code
-    if post_dict:
-        from pprint import pprint
-
-        print("post_dict:")
-        pprint(post_dict)
-
-    return cls(**es_post)
-
-
-def _parse_reddit_dict_id(
-    post_dict: Dict[str, object], es_post: Dict[str, object]
-) -> None:
-    # The Reddit internal ID, will be prefixed with type prefix later.
-    es_post["_id"] = post_dict.pop("id")
-    assert isinstance(es_post["_id"], str) and es_post["_id"]
-
-    # "name" is "id" with type prefix (e.g., "t1_" for comments).
-    if "name" in post_dict:
-        assert cast(str, post_dict.pop("name")).endswith(es_post["_id"])
-
-
-def _parse_reddit_dict_time(
-    post_dict: Dict[str, object], es_post: Dict[str, object]
-) -> None:
-    # The UTC time the post was created.
-    created_utc = datetime.utcfromtimestamp(
-        int(cast(Union[str, int], post_dict.pop("created_utc")))
-    )
-    assert created_utc >= datetime(year=2005, month=6, day=23)  # Reddit founding date.
-    es_post["created_utc"] = created_utc
-
-    # Local time the post was created (deprecated).
-    post_dict.pop("created", None)
-
-    # If the post has been edited, edit date in UTC time. For some old edited
-    # comments, this was instead a bool, we substitute with post creation time.
-    if "edited" in post_dict:
-        edited = post_dict.pop("edited")
-        if isinstance(edited, bool):
-            if edited:
-                es_post["edited"] = es_post["created_utc"]
-            else:
-                es_post["edited"] = datetime.utcfromtimestamp(
-                    cast(Union[int, float], edited)
-                )
-
-    # When the post was retrieved. If not-existent, substitute post creation time.
-    if "retrieved_on" in post_dict:
-        es_post["retrieved_on"] = datetime.utcfromtimestamp(
-            cast(int, post_dict.pop("retrieved_on"))
-        )
-    else:
-        es_post["retrieved_on"] = es_post["created_utc"]
-
-
-def _parse_reddit_dict_author(
-    post_dict: Dict[str, object], es_post: Dict[str, object]
-) -> None:
-    # The Reddit username of the author of the link/comment.
-    es_post["author"] = post_dict.pop("author")
-    assert isinstance(es_post["author"], str)
-    assert es_post["author"]
-
-    # author_created_utc and author_fullname seem to be introduced into dumps
-    # starting 2018-06 but even then are not always included.
-    post_dict.pop("author_created_utc", None)
-    post_dict.pop("author_fullname", None)
-
-    # The text for the author's flair (None or a non-empty string).
-    es_post["author_flair_text"] = post_dict.pop("author_flair_text") or None
-
-    # Ignore other flair related stuff.
-    post_dict.pop("author_flair_background_color", None)
-    post_dict.pop("author_flair_css_class", None)
-    post_dict.pop("author_flair_richtext", None)
-    post_dict.pop("author_flair_template_id", None)
-    post_dict.pop("author_flair_text_color", None)
-    post_dict.pop("author_flair_type", None)
-
-    # Ignore other author stuff.
-    post_dict.pop("author_premium", False)  # Dependant on crawl-date.
-    post_dict.pop("author_cakeday", False)  # Dependant on crawl-date.
-    post_dict.pop("author_patreon_flair", False)  # No idea what this is (always False).
-
-    # Whether author is moderator or admin.
-    es_post["distinguished"] = post_dict.pop("distinguished")
-    assert es_post["distinguished"] in [None, "moderator", "admin"]
-
-
-def _parse_reddit_dict_awards(
-    post_dict: Dict[str, object], es_post: Dict[str, object]
-) -> None:
-    es_all_awardings = []
-
-    # Modern way to specify Reddit awards.
-    all_awardings = cast(
-        Sequence[Dict[str, object]], post_dict.pop("all_awardings", [])
-    )
-    if all_awardings:
-        for award in all_awardings:
-            assert isinstance(award["count"], int) and award["count"]
-            es_all_awardings.append(
-                {
-                    "id": award["id"],
-                    "name": award["name"],
-                    "count": award["count"],
-                    "award_type": award["award_type"],
-                }
-                # Ignoring all other award properties.
-            )
-
-    # Legacy way to specify only Platinum/Gold/Silver awards.
-    gildings = cast(Mapping[str, int], post_dict.pop("gildings", {}))
-    if gildings:
-        if es_all_awardings:  # If newer attribute also exists and is parsed already.
-            # Zero entries seem to be messing in this case.
-            for award_id, award_count in gildings.items():
-                assert any(
-                    award["id"] == award_id and award["count"] == award_count
-                    for award in es_all_awardings
-                )
-        else:
-            for award_id, award_count in gildings.items():
-                assert isinstance(award_count, int) != 0
-                if award_count == 0:
-                    continue
-                es_all_awardings.append(
-                    {
-                        "id": award_id,
-                        "name": RedditAward.name_from_id(award_id),
-                        "count": award_count,
-                        "award_type": "global",
-                    }
-                )
-
-    # Legacy way to specify only gold awards.
-    gilded = post_dict.pop("gilded", 0)
-    if gilded:
-        legacy_award_id = "gid_2"
-        if es_all_awardings:  # If newer attribute also exists.
-            assert any(
-                award["id"] == legacy_award_id and award["count"] == gilded
-                for award in es_all_awardings
-            )
-        else:
-            es_all_awardings = [
-                {
-                    "id": legacy_award_id,
-                    "name": RedditAward.name_from_id(legacy_award_id),
-                    "count": gilded,
-                    "award_type": "global",
-                }
-            ]
-
-    # Duplicate total counter of other forms award specification.
-    total_awards_received = post_dict.pop("total_awards_received", None)
-    if total_awards_received:
-        assert total_awards_received == sum(
-            award["count"] for award in es_all_awardings
-        )
-
-    es_all_awardings.sort(key=itemgetter("id"))
-    es_post["all_awardings"] = es_all_awardings
-
-    # Whether or not this link can be "gilded" by giving the link author Reddit
-    # gold (decided not useful).
-    post_dict.pop("can_gild", None)
-
-    # Not sure what these are.
-    post_dict.pop("associated_award", None)
-    post_dict.pop("awarders", None)
-
-
-def _parse_reddit_dict_score(
-    post_dict: Dict[str, object], es_post: Dict[str, object]
-) -> None:
-    # Whether the post's score was visible at the time of retrieving. If this is
-    # the case, the score will default to 1. Here we elect to not save the score
-    # for these cases. For more information on this, see:
-    # https://www.reddit.com/r/AskReddit/comments/1dfnku/why_are_comment_scores_hidden/
-    if post_dict.pop("score_hidden", False):
-        assert post_dict.pop("score") == 1
-    else:
-        # The net-score of the post (sometimes not present).
-        es_post["score"] = post_dict.pop("score")
-        assert es_post["score"] is None or isinstance(es_post["score"], int)
-
-    # Direct access of up- and down-votes (deprecated, not available for newer posts).
-    post_dict.pop("ups", None)
-    post_dict.pop("downs", None)
-
-
-def _parse_reddit_dict_subreddit(
-    post_dict: Dict[str, object], es_post: Dict[str, object]
-) -> None:
-    # The name of the subreddit the post belongs to.
-    es_post["subreddit"] = post_dict.pop("subreddit")
-    assert isinstance(es_post["subreddit"], str) and es_post["subreddit"]
-
-    # The name of the subreddit prefixed with "r/".
-    post_dict.pop("subreddit_name_prefixed", None)
-
-    # The Reddit Fullname of the subreddit.
-    es_post["subreddit_id"] = post_dict.pop("subreddit_id")
-    assert isinstance(es_post["subreddit_id"], str) and es_post["subreddit_id"]
-
-    # The type of subreddit.
-    es_post["subreddit_type"] = post_dict.pop("subreddit_type", None)
-    assert es_post["subreddit_type"] in [
-        None,
-        "archived",
-        "gold_only",
-        "private",
-        "public",
-        "restricted",
-        "user",
-    ]
-
-    # Number of subscribers of the subreddit (only for links and dependant on
-    # retrieval time).
-    post_dict.pop("subreddit_subscribers", None)
-
-
-def _parse_reddit_dict_media_metadata(
-    post_dict: Dict[str, object], es_post: Dict[str, object]
-) -> None:
-    # Information about all referenced media in a link's selftext or a comment's
-    # body, e.g., included images or videos. Only for images/videos hosted on
-    # Reddit.
-    media_metadata = cast(
-        Optional[Mapping[str, Mapping[str, object]]],
-        post_dict.pop("media_metadata", None),
-    )
-
-    es_media_metadata = []
-    for media_metadatum in dict(media_metadata or {}).values():
-        media_metadatum = dict(media_metadatum)  # Don't manipulate original dict.
-        s = cast(Mapping[str, str], media_metadatum.pop("s", {}))
-
-        es_media_metadatum = {}
-
-        # Reddit internal ID of media.
-        es_media_metadatum["id"] = media_metadatum.pop("id")
-        assert isinstance(es_media_metadatum["id"], str) and es_media_metadatum["id"]
-
-        # Type of media.
-        es_media_metadatum["e"] = media_metadatum.pop("e")
-        assert es_media_metadatum["e"] in ["Image", "AnimatedImage", "RedditVideo"]
-
-        # For Image and AnimatedImage:
-        # MIME-Type of image.
-        es_media_metadatum["m"] = media_metadatum.pop("m", None)
-        assert es_media_metadatum["m"] in [
-            None,  # TODO: needed?
-            "image/png",
-            "image/jpg",
-            "image/gif",
-        ]
-        # URL for Image. MP4s sometimes exists for GIFs.
-        es_media_metadatum["s"] = s.get("u") or s.get("gif") or s.get("mp4")
-        for k in s.keys():
-            # Assert that there are no values in "s" that we do not know about.
-            assert k in ["u", "gif", "mp4", "x", "y"]
-        # Special tag for image.
-        es_media_metadatum["t"] = media_metadatum.pop("t", None)
-        assert es_media_metadatum["t"] in [None, "sticker", "emoji"]
-
-        # For RedditVideo:
-        es_media_metadatum["dash_url"] = media_metadatum.pop("dashUrl", None)
-        es_media_metadatum["hls_url"] = media_metadatum.pop("hlsUrl", None)
-
-        # Not sure what these are.
-        media_metadatum.pop("status")  # Always "valid" for Pushshift.
-        media_metadatum.pop("isGif", None)
-        media_metadatum.pop("x", None)
-        media_metadatum.pop("y", None)
-
-        if media_metadatum:
-            from pprint import pprint
-
-            print("media_metadatum:")
-            pprint(media_metadatum)
-
-        es_media_metadata.append(es_media_metadatum)
-
-    es_media_metadata.sort(key=itemgetter("id"))
-    es_post["media_metadata"] = es_media_metadata
-
-
-def _parse_reddit_dict_misc(
-    post_dict: Dict[str, object], es_post: Dict[str, object]
-) -> None:
-    # If the post has been archived.
-    es_post["archived"] = post_dict.pop("archived", False)
-
-    # If the post is set as the sticky in its subreddit/thread.
-    es_post["stickied"] = post_dict.pop("stickied", False)
-
-    # If the post has been locked by a moderator.
-    es_post["locked"] = post_dict.pop("locked", False)
-
-    # If this post is part of a quarantined subreddit.
-    # "quarantine" for links, "quarantined" for comments.
-    es_post["quarantine"] = post_dict.pop("quarantine", False)
-    es_post["quarantine"] = post_dict.pop("quarantined", False) or es_post["quarantine"]
-
-    # No idea what these are.
-    post_dict.pop("can_mod_post", None)
-    post_dict.pop("no_follow", None)
-    post_dict.pop("removal_reason", None)
-    post_dict.pop("send_replies", None)
-    # Only present on comments.
-    post_dict.pop("mod_note", None)
-    post_dict.pop("mod_reason_by", None)
-    post_dict.pop("mod_reason_title", None)
-
-    # Not exactly sure what this is. If present it's values are either "markdown"
-    # or "richtext". Was used from 2005-06 to 20010-12 and recently again with the
-    # redesign from 2010-10 to 2018-10.
-    post_dict.pop("rte_mode", None)
-
-
-def _parse_reddit_dict_log_in_required(post_dict: Dict[str, object]) -> None:
-    # Whether or not the user has saved the post.
-    post_dict.pop("saved", None)
-
-    # Whether the user likes (upvoted) the link or not
-    post_dict.pop("likes", None)
-
-
-def _parse_reddit_dict_moderator_required(post_dict: Dict[str, object]) -> None:
-    # Whether the post has been approved by a moderator.
-    post_dict.pop("approved", None)
-    # The UTC time the post was approved by a moderator.
-    post_dict.pop("approved_at_utc", None)
-    # The Moderator who approved the post.
-    post_dict.pop("approved_by", None)
-
-    # The UTC time the link was banned by a post.
-    post_dict.pop("banned_at_utc", None)
-    # The username of the moderator who banned the post.
-    post_dict.pop("banned_by", None)
-    # The note left when banning the post.
-    post_dict.pop("banned_note", None)
-
-    # An array of reports made by Moderators on this post.
-    post_dict.pop("mod_reports", None)
-    # The number of reports the link has.
-    post_dict.pop("num_reports", None)
-    # A string array containing report reasons supplied by users.
-    post_dict.pop("report_reasons", None)
-    # A collection of reports made against this post by other users.
-    post_dict.pop("user_reports", None)
-    # Reports of mod-helpers. See:
-    # https://www.reddit.com/r/ModSupport/comments/d31dim/what_is_the_steward_reports_field_on_the/
-    post_dict.pop("steward_reports", None)
-
-
-def _parse_reddit_dict_link(
-    post_dict: Dict[str, object], es_post: Dict[str, object]
-) -> None:
-    es_post["type_"] = RedditLink.__name__
-
-    # Assemble partial ID into Reddit fullname.
-    es_post["_id"] = "t3_" + cast(str, es_post["_id"])
-
-    # The permalink to this link.
-    es_post["permalink"] = post_dict.pop("permalink")
-    assert es_post["permalink"]
-
-    # The title of the link post.
-    es_post["title"] = post_dict.pop("title")
-    assert es_post["title"]
-
-    # The text of a self-post (may be empty, which we convert to None).
-    selftext = post_dict.pop("selftext")
-    if selftext:
-        es_post["selftext"] = (
-            cast(str, selftext)
-            # Need to escape exactly these characters.
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&amp;", "&")
-        )
-    post_dict.pop("selftext_html", None)  # Decide to ignore.
-
-    # The domain of the URL the link was submitted for.
-    # If it starts with "self." it is eather a self-post or a crosspost.
-    es_post["domain"] = post_dict.pop("domain")
-    assert es_post["domain"]
-
-    # The url of the link.
-    es_post["url"] = post_dict.pop("url")
-    assert es_post["url"]
-
-    # The text for the link's flair (may be None).
-    es_post["link_flair_text"] = post_dict.pop("link_flair_text")
-
-    # Ignore other flair related stuff.
-    post_dict.pop("link_flair_background_color", None)
-    post_dict.pop("link_flair_css_class", None)
-    post_dict.pop("link_flair_richtext", None)
-    post_dict.pop("link_flair_template_id", None)
-    post_dict.pop("link_flair_text_color", None)
-    post_dict.pop("link_flair_type", None)
-
-
-def _parse_reddit_dict_link_misc(
-    post_dict: Dict[str, object], es_post: Dict[str, object]
-) -> None:
-    # This is true if Reddit has determined the subreddit the Link was posted in is safe
-    # for advertising.
-    es_post["brand_safe"] = post_dict.pop("brand_safe", None)
-
-    # If true, the link has been set to Contest mode. See:
-    # https://www.reddit.com/r/bestof2012/comments/159bww/introducing_contest_mode_a_tool_for_your_voting/
-    es_post["contest_mode"] = post_dict.pop("contest_mode", False)
-
-    # Whether or not the link is a self-post.
-    es_post["is_self"] = post_dict.pop("is_self")
-
-    # Not sure what this is.
-    es_post["is_original_content"] = post_dict.pop("is_original_content", None)
-    if cast(datetime, es_post["created_utc"]) >= datetime(2018, 8, 3):
-        assert es_post["is_original_content"] is not None
-
-    # Whether or not the link is a video post (i.e., using v.redd.it).
-    es_post["is_video"] = post_dict.pop("is_video", False)
-
-    # Whether or not the link is NSFW.
-    es_post["over_18"] = post_dict.pop("over_18", False)
-
-    # Whether or not the link has been marked as a spoiler.
-    es_post["spoiler"] = post_dict.pop("spoiler", False)
-
-    # Fullname of the post this post is a crosspost to.
-    es_post["crosspost_parent"] = post_dict.pop("crosspost_parent", None)
-    # Full JSON of the post this post is a crosspost to. Not added into
-    # Elasticsearch to keep things simpler.
-    post_dict.pop("crosspost_parent_list", None)
-
-    # The number of comments the link has (includes removed comments).
-    es_post["num_comments"] = post_dict.pop("num_comments", None)
-
-    # The number of crossposts the link has (not sure on this).
-    es_post["num_crossposts"] = post_dict.pop("num_crossposts", None)
-
-    # Info on what kind of link this is (availability seems to be subreddit
-    # dependant).
-    es_post["post_hint"] = post_dict.pop("post_hint", None)
-    assert es_post["post_hint"] in [
-        None,
-        "self",
-        "image",
-        "hosted:video",
-        "link",
-        "rich:video",
-        "video",
-    ]
-
-    # The suggested sort order for comments made to the link.
-    es_post["suggested_sort"] = post_dict.pop("suggested_sort", None)
-    assert es_post["suggested_sort"] in [
-        None,
-        "new",
-        "top",
-        "qa",
-        "confidence",
-        "old",
-        "controversial",
-        "random",
-        "live",
-    ]
-
-    # Data related to the new event system. See:
-    # https://www.reddit.com/r/modnews/comments/bgibu9/an_update_on_making_it_easier_to_host_events_on/
-    es_post["event_is_live"] = post_dict.pop("event_is_live", None)
-    event_start = post_dict.pop("event_start", None)
-    if event_start:
-        es_post["event_start"] = datetime.utcfromtimestamp(cast(int, event_start))
-    event_end = post_dict.pop("event_end", None)
-    if event_end:
-        es_post["event_end"] = datetime.utcfromtimestamp(cast(int, event_end))
-
-    # Decided to ignore.
-    post_dict.pop("pinned", None)  # Dependant on retrieval time.
-    post_dict.pop("media_only", None)  # Equivalent to media and no selftext.
-    post_dict.pop("is_reddit_media_domain", None)  # Is domain "i.redd.it"/"v.redd.it"?
+    link_flair_text_color = Keyword(doc_values=False, index=False)
+    link_flair_type = Keyword()
+
+    media = Object(RedditLinkMedia)
+    media_embed = Object(RedditLinkMediaEmbed)
+    secure_media = Object(RedditLinkMedia)
+    secure_media_embed = Object(RedditLinkMediaEmbed)
+    preview = Object(RedditLinkPreview)
+    thumbnail = Keyword(doc_values=False, index=False)
+    thumbnail_width = Integer()
+    thumbnail_height = Integer()
+
+    collections = Nested(RedditLinkCollection)
+
+    crosspost_parent = Keyword()
+    # See documentation on this in RedditPost.from_dict().
+    # crosspost_parent_list = Nested(RedditLink) # noqa: E800
+
+    allow_live_comments = Boolean()
+    brand_safe = Boolean()
+    contest_mode = Boolean()
+    disable_comments = Boolean()
+    hide_score = Boolean()
+    is_blank = Boolean()  # For sample, always False if it exists.
+    is_crosspostable = Boolean()
+    is_meta = Boolean()  # For sample, always None if it exists.
+    is_original_content = Boolean()
+    is_reddit_media_domain = Boolean()
+    is_robot_indexable = Boolean()
+    is_self = Boolean()
+    is_video = Boolean()
+    media_only = Boolean()
+    over_18 = Boolean()
+    pinned = Boolean()
+    quarantine = Boolean()
+    spoiler = Boolean()
+
+    category = Keyword()
+    content_categories = Keyword(multi=True)
+    discussion_type = Keyword()  # For sample, always None if it exists.
+    post_categories = Keyword(multi=True)  # For sample, always None if it exists.
+    post_hint = Keyword()
+    suggested_sort = Keyword()
+
+    previous_visits = RedditDate(multi=True)
+    view_count = Integer()  # For sample, always None if it exists.
+
+    whitelist_status = Keyword()
+    wls = Integer()
+    parent_whitelist_status = Keyword()
+    pwls = Integer()
+
+    num_comments = Integer()
+    num_crossposts = Integer()
+
+    event_is_live = Boolean()
+    event_start = RedditDate()
+    event_end = RedditDate()
+
+    # Promotion-related.
+    call_to_action = Keyword()
+    domain_override = Keyword()
+    embed_type = Keyword()
+    embed_url = Keyword()
+    href_url = Keyword()
+    mobile_ad_url = Keyword(doc_values=False, index=False)
+    outbound_link = Object(RedditLinkOutboundLink)
+    promoted = Boolean()
+    promoted_by = Long()
+    show_media = Boolean()
+    third_party_trackers = Keyword(multi=True, doc_values=False, index=False)
+    third_party_tracking = Keyword(doc_values=False, index=False)
+    third_party_tracking_2 = Keyword(doc_values=False, index=False)
 
     # Log-in required.
-    post_dict.pop("hidden", None)  # Whether the link has been hidden by the user.
-    post_dict.pop("clicked", None)  # Whether the link has been clicked by the user.
-    post_dict.pop("visited", None)  # Whether the user has visited the link.
+    hidden = Boolean()
+    clicked = Boolean()
+    visited = Boolean()
 
     # Moderator required.
-    post_dict.pop("ban_note", None)  # Always None if it exists.
-    post_dict.pop("hide_score", None)  # Always False if it exists.
-    post_dict.pop("ignore_reports", None)  # Always False if it exists.
-    post_dict.pop("removed", None)  # Always False if it exists.
-    post_dict.pop("spam", None)  # Always False if it exists.
+    ignore_reports = Boolean()  # For sample, always False if it exists.
+    removed = Boolean()  # For sample, always False if it exists.
+    spam = Boolean()  # For sample, always False if it exists.
 
     # No idea what these are.
-    post_dict.pop("allow_live_comments", None)
-    post_dict.pop("category", None)
-    post_dict.pop("content_categories", None)
-    post_dict.pop("from", None)  # Always None if it exists.
-    post_dict.pop("from_id", None)  # Always None if it exists.
-    post_dict.pop("from_kind", None)  # Always None if it exists.
-    post_dict.pop("discussion_type", None)  # Always None if it exists.
-    post_dict.pop("is_crosspostable", None)
-    post_dict.pop("is_meta", None)  # Always False if it exists.
-    post_dict.pop("is_robot_indexable", None)
-    post_dict.pop("post_categories", None)  # Always None if it exists.
-    post_dict.pop("previous_visits", None)  # List of Timestamps if it exists.
-    post_dict.pop("view_count", None)  # Always None if it exists.
-
-
-def _parse_reddit_dict_link_collections(
-    post_dict: Dict[str, object], es_post: Dict[str, object]
-) -> None:
-    es_collections = []
-
-    for collection in cast(
-        Sequence[Mapping[str, object]], post_dict.pop("collections", [])
-    ):
-        collection = dict(collection)
-
-        es_collection = {}
-
-        # Data related to the new collection functionality. See:
-        # https://mods.reddithelp.com/hc/en-us/articles/360027311431-Collections
-
-        # Fullname of the collection's author.
-        es_collection["author_id"] = collection.pop("author_id")
-        assert (
-            isinstance(es_collection["author_id"], str) and es_collection["author_id"]
-        )
-
-        # Username of the collection's author.
-        es_collection["author_name"] = collection.pop("author_name")
-        assert (
-            isinstance(es_collection["author_name"], str)
-            and es_collection["author_name"]
-        )
-
-        # Fullname of the collection.
-        es_collection["collection_id"] = collection.pop("collection_id")
-        assert (
-            isinstance(es_collection["collection_id"], str)
-            and es_collection["collection_id"]
-        )
-
-        # Timestamp the collection was created.
-        es_collection["created_at_utc"] = datetime.utcfromtimestamp(
-            cast(float, collection.pop("created_at_utc"))
-        )
-
-        # Plain-text description of the collection.
-        es_collection["description"] = collection.pop("description", None)
-
-        # Not sure.
-        es_collection["display_layout"] = collection.pop("display_layout", None)
-        assert es_collection["display_layout"] in [None, "TIMELINE", "GALLERY"]
-
-        # Timestamp the collection was last updated.
-        es_collection["last_update_utc"] = datetime.utcfromtimestamp(
-            cast(float, collection.pop("last_update_utc"))
-        )
-
-        # List of all link fullnames that are included in this collection.
-        es_collection["link_ids"] = collection.pop("link_ids")
-        assert isinstance(es_collection["link_ids"], Sequence)
-        for link_id in es_collection["link_ids"]:
-            assert isinstance(link_id, str) and link_id
-        assert es_post["_id"] in es_collection["link_ids"]
-
-        # Permalink to the collection
-        permalink = cast(Optional[str], collection.pop("permalink", None))
-        if permalink:
-            es_collection["permalink"] = "https://www.reddit.com" + permalink
-
-        # Fullname of the subreddit the collection is in.
-        es_collection["subreddit_id"] = collection.pop("subreddit_id")
-        assert (
-            isinstance(es_collection["subreddit_id"], str)
-            and es_collection["subreddit_id"]
-        )
-
-        # Title of the collection.
-        es_collection["title"] = collection.pop("title")
-        assert isinstance(es_collection["title"], str) and es_collection["title"]
-
-        if collection:
-            from pprint import pprint
-
-            print("collection:")
-            pprint(collection)
-
-        es_collections.append(es_collection)
-
-    es_collections.sort(key=itemgetter("collection_id"))
-    es_post["collections"] = es_collections
-
-
-def _parse_reddit_dict_link_media(
-    post_dict: Dict[str, object], es_post: Dict[str, object]
-) -> None:
-    # Info for when the post links to embeddable content or info on the first
-    # embeddable content from the post if it is a selftext.
-    # secure_media seems to contain the exact same stuff as media but is guaranteed
-    # to be https, so we prefer that.
-    media = post_dict.pop("media")
-    media = post_dict.pop("secure_media", None) or media
-    media = dict(cast(Mapping[str, object], media) or {})
-
-    if media:
-        if "oembed" in media:
-            es_post["media"] = _from_reddit_dict_link_media_oembed(media)
-        elif "reddit_video" in media:
-            es_post["media"] = _from_reddit_dict_link_media_reddit_video(media)
-        else:
-            raise IncompleteDataError("Could not determine given media format.")
-
-    if media:
-        from pprint import pprint
-
-        print("media:")
-        pprint(media)
-
-    # Full url to the thumbnail for the post.
-    es_post["thumbnail"] = post_dict.pop("thumbnail", None) or "default"
-    if not cast(str, es_post["thumbnail"]).startswith("http"):
-        assert es_post["thumbnail"] in [
-            "default",
-            "image",
-            "nsfw",
-            "self",
-            "spoiler",
-        ]
-
-    # These only seem to contain redundant information from (secure_) media.
-    post_dict.pop("media_embed")
-    post_dict.pop("secure_media_embed", None)
-
-    # Decided not to need these.
-    post_dict.pop("preview", None)
-    post_dict.pop("thumbnail_width", None)
-    post_dict.pop("thumbnail_height", None)
-
-
-def _from_reddit_dict_link_media_oembed(
-    media: Dict[str, object]
-) -> Mapping[str, object]:
-    oembed = dict(cast(Mapping[str, object], media.pop("oembed")))
-
-    es_oembed = {}
-
-    # The following varies from service to service where the media is from.
-    # E.g.: YouTube account name.
-    es_oembed["author_name"] = oembed.pop("author_name", None)
-    # E.g.: YouTube account url.
-    es_oembed["author_url"] = oembed.pop("author_url", None)
-    # E.g.: description of YouTube video.
-    es_oembed["description"] = oembed.pop("description", None)
-    # E.g.: iframe to embed the YouTube video.
-    es_oembed["html"] = oembed.pop("html")
-    es_oembed["html"] = oembed.pop("html5", None) or es_oembed["html"]
-    assert es_oembed["html"]
-    # E.g.: "YouTube"
-    es_oembed["provider_name"] = oembed.pop("provider_name")
-    assert es_oembed["provider_name"]
-    # E.g.: "http://www.youtube.com/"
-    es_oembed["provider_url"] = oembed.pop("provider_url")
-    assert es_oembed["provider_url"]
-    # E.g.: YouTube-Thumbnail of video.
-    es_oembed["thumbnail_url"] = oembed.pop("thumbnail_url", None)
-    # E.g.: Title of YouTube video.
-    es_oembed["title"] = oembed.pop("title", None)
-    # E.g.: "youtube.com"
-    es_oembed["type_"] = oembed.pop("type")
-    assert es_oembed["type_"]
-    # E.g.: URL to the YouTube video.
-    es_oembed["url"] = oembed.pop("url", None)
-
-    # Decided not to store.
-    oembed.pop("width", None)
-    oembed.pop("height", None)
-    oembed.pop("thumbnail_width", None)
-    oembed.pop("thumbnail_height", None)
-
-    # No idea what these are.
-    oembed.pop("version")  # Always "1.0" for Pushshift data.
-    oembed.pop("cache_age", None)
-    oembed.pop("mean_alpha", None)
-    oembed.pop("thumbnail_size", None)
-
-    if oembed:
-        from pprint import pprint
-
-        print("oembed:")
-        pprint(oembed)
-
-    return {
-        "oembed": es_oembed,
-        "type_": media.pop("type"),
-    }
-
-
-def _from_reddit_dict_link_media_reddit_video(
-    media: Dict[str, object]
-) -> Mapping[str, object]:
-    reddit_video = dict(cast(Dict[str, object], media.pop("reddit_video")))
-
-    es_reddit_video = {}
-
-    # Not sure what these URLs are.
-    es_reddit_video["dash_url"] = reddit_video.pop("dash_url")
-    es_reddit_video["duration"] = reddit_video.pop("duration")
-    es_reddit_video["fallback_url"] = reddit_video.pop("fallback_url")
-    es_reddit_video["hls_url"] = reddit_video.pop("hls_url")
-    es_reddit_video["scrubber_media_url"] = reddit_video.pop("scrubber_media_url")
-
-    for value in es_reddit_video:
-        assert value
-
-    # Decided not to store.
-    reddit_video.pop("width")
-    reddit_video.pop("height")
-
-    # No idea what these are.
-    reddit_video.pop("is_gif")
-    reddit_video.pop("transcoding_status")  # Always "completed" for Pushshift data.
-
-    if reddit_video:
-        from pprint import pprint
-
-        print("reddit_video:")
-        pprint(reddit_video)
-
-    return {
-        "reddit_video": es_reddit_video,
-    }
-
-
-def _parse_reddit_dict_link_whitelist_status(
-    post_dict: Dict[str, object], es_post: Dict[str, object]
-) -> None:
-    # Not exactly sure what these are for.
-    for attr in ["whitelist_status", "parent_whitelist_status"]:
-        es_post[attr] = post_dict.pop(attr, None)
-        assert es_post[attr] in [
-            None,
-            "all_ads",
-            "house_only",
-            "no_ads",
-            "promo_adult",
-            "promo_adult_nsfw",
-            "promo_all",
-            "promo_specified",
-        ]
-
-    # These seem to be shorthands for the two above introduced around 2018-03.
-    post_dict.pop("wls", None)
-    post_dict.pop("pwls", None)
-
-
-def _parse_reddit_dict_link_fix_odd_data(es_post: Dict[str, object]) -> None:
-    # In rare old cases we have a URL like "http://self.quickquestions".
-    if cast(str, es_post["domain"]).startswith("self.") and cast(
-        str, es_post["url"]
-    ).endswith(cast(str, es_post["domain"])):
-        es_post["url"] = "https://www.reddit.com" + cast(str, es_post["permalink"])
-        es_post["is_self"] = True
-
-    # In rare cases the URL does not start with "http".
-    if not cast(str, es_post["url"]).lower().startswith("http"):
-        es_post["url"] = "https://www.reddit.com" + cast(str, es_post["url"])
-
-    # TODO: fix odd domain data to have correct domain of url
-    #   e.g. it can be "/r/Seaofthieves/comments/8nncoj/drunken_drums_are_best_drums/"
-
-
-def _parse_reddit_dict_comment(
-    post_dict: Dict[str, object], es_post: Dict[str, object]
-) -> None:
-    es_post["type_"] = RedditComment.__name__
-
-    # Assemble partial ID into Reddit fullname.
-    es_post["_id"] = "t1_" + cast(str, es_post["_id"])
-
-    # Fullname of the link this comment is in.
-    es_post["link_id"] = post_dict.pop("link_id")
-    assert isinstance(es_post["link_id"], str) and es_post["link_id"]
-
-    # Fullname of the thing this comment is a reply to, or the link in it.
-    es_post["parent_id"] = post_dict.pop("parent_id")
-    assert isinstance(es_post["parent_id"], str) and es_post["parent_id"]
-
-    # The permalink to this comment (only available reliably since 2017-11).
-    es_post["permalink"] = post_dict.pop("permalink_url", None)
-    es_post["permalink"] = post_dict.pop("permalink", None) or es_post["permalink"]
-    if not es_post["permalink"]:
-        # If it does not exist, construct it.
-        es_post["permalink"] = "r/{}/comments/{}/_/{}".format(
-            es_post["subreddit"], es_post["link_id"][3:], cast(str, es_post["_id"])[:3]
-        )
-
-    # The body of the comment.
-    es_post["body"] = post_dict.pop("body")
-    assert isinstance(es_post["body"], str) and es_post["body"]
-
-    # HTML format of the comment body (only very rarely available).
-    post_dict.pop("body_html", None)
-
-    # The controversiality score of the comment.
-    es_post["controversiality"] = post_dict.pop("controversiality")
-    assert isinstance(es_post["controversiality"], int)
-
-    # Whether the comment author is also the link author (available since mid 2017-07).
-    es_post["is_submitter"] = post_dict.pop("is_submitter", None)
-
-    # Whether the comment is collapsed initially (available since mid 2017-07).
-    es_post["collapsed"] = post_dict.pop("collapsed", None)
-
-    # Why the comment has been collapsed (available since mid 2017-07 but most often
-    # it is `None` even if available).
-    es_post["collapsed_reason"] = post_dict.pop("collapsed_reason", None)
-    assert es_post["collapsed_reason"] in [
-        None,
-        "may be sensitive content",
-        "comment score below threshold",
-    ]
-
-    # No idea what this is.
-    post_dict.pop("collapsed_because_crowd_control", None)
-
-    # A collection of child comments for this comment (always the empty string for
-    # Pushshift data).
-    post_dict.pop("replies", None)
+    # There is a "from" field in the Reddit JSON sometimes. However, from is a keyword
+    # in Python and therefore can't be used as an attribute name. I opened an issue on
+    # this: https://github.com/elastic/elasticsearch-dsl-py/issues/1345
+    # from = Keyword()  # noqa: E800  # For sample, always None if it exists.
+    from_id = Keyword()  # For sample, always None if it exists.
+    from_kind = Keyword()  # For sample, always None if it exists.
+
+
+class RedditComment(RedditPost):
+    link_id = Keyword()
+    parent_id = Keyword()
+    permalink_url = Keyword(doc_values=False, index=False)
+
+    body = Text(
+        index_options=INDEX_OPTIONS,
+        index_phrases=INDEX_PHRASES,
+        analyzer=standard_uax_url_email_analyzer,
+        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
+        term_vector=INDEX_TERM_VECTOR,
+    )
+    body_html = Keyword(doc_values=False, index=False)
+
+    controversiality = Integer()
+    is_submitter = Boolean()
+    quarantined = Boolean()
+
+    collapsed = Boolean()
+    collapsed_reason = Keyword()
+    collapsed_because_crowd_control = Boolean()
+
+    replies = Keyword()  # For sample, always '' if it exists.
 
 
 def load_reddit_dicts_from_dump(file: Path) -> Iterator[Mapping[str, object]]:
@@ -1301,15 +860,4 @@ def load_reddit_dicts_from_dump(file: Path) -> Iterator[Mapping[str, object]]:
                 yield json.loads(line)
             except JSONDecodeError:
                 LOGGER.error(f"Error in line {line_no} of file '{file}'.")
-                raise
-
-
-def load_reddit_posts_from_dump(
-    file: Path, skip_promoted: bool = True
-) -> Iterator[RedditPost]:
-    for post_dict in load_reddit_dicts_from_dump(file):
-        try:
-            yield parse_reddit_dict(post_dict)
-        except PromotedContentError:
-            if not skip_promoted:
                 raise

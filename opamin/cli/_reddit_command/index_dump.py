@@ -23,7 +23,11 @@ from overrides import overrides
 from typing_extensions import Final
 
 from ..._util.elasticsearch import establish_elasticsearch_connection
-from ...data.reddit import ensure_reddit_index_available, load_reddit_posts_from_dump
+from ...data.reddit import (
+    RedditPost,
+    ensure_reddit_index_available,
+    load_reddit_dicts_from_dump,
+)
 from .._command import Command
 
 LOGGER: Final[Logger] = getLogger(__name__)
@@ -61,10 +65,10 @@ class IndexDumpRedditCommand(Command):
         ensure_reddit_index_available()
 
         # TODO: implement bulk loading
-        # TODO: find out if there is a lib that logs asserts better
-        # TODO: can ES coerce int/float into Date? A: possibly w/ "format" param
-        # TODO: check if _source exclusion is sensible for log-in/mod fields
-        #   https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-source-field.html#include-exclude
+        from ...data.reddit import debug_dynamic_mapping_difference
 
-        for post in load_reddit_posts_from_dump(self._args.file):
+        debug_dynamic_mapping_difference()
+
+        for post_dict in load_reddit_dicts_from_dump(self._args.file):
+            post = RedditPost.from_dict(post_dict)
             post.save()

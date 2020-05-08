@@ -14,6 +14,7 @@
 # limitations under the License.
 #
 
+from datetime import date, datetime
 from typing import Generic, Mapping, Optional, Sequence, Tuple, Type, TypeVar, Union
 
 from elasticsearch import Elasticsearch
@@ -42,6 +43,9 @@ class connections:  # noqa: N801
     @classmethod
     def get_connection(cls, alias: str = ...) -> Elasticsearch: ...
 
+class char_filter:  # noqa: N801
+    def __init__(self, name: str): ...
+
 class tokenizer:  # noqa: N801
     def __init__(self, name: str): ...
 
@@ -58,6 +62,8 @@ class analyzer:  # noqa: N801
     def __init__(
         self,
         name: str,
+        *,
+        char_filter: Sequence[Union[str, char_filter]] = ...,
         tokenizer: Union[str, tokenizer] = ...,
         filter: Sequence[Union[str, token_filter]] = ...,  # noqa: A002
     ): ...
@@ -67,9 +73,11 @@ class IndexTemplate:
 
 class Index:
     def __init__(self, name: str, using: _T_Using = ...): ...
+    def delete(self, using: _T_Using = ...) -> _T_JsonMap: ...
+    def delete_alias(self, name: str, using: _T_Using = ...) -> _T_JsonMap: ...
     def exists(self, using: _T_Using = ...) -> bool: ...
     def exists_alias(self, name: str, using: _T_Using = ...) -> bool: ...
-    def delete_alias(self, name: str, using: _T_Using = ...) -> _T_JsonMap: ...
+    def get_mapping(self, using: _T_Using = ...) -> _T_JsonMap: ...
     def put_alias(self, name: str, using: _T_Using = ...) -> _T_JsonMap: ...
     def refresh(self, using: _T_Using = ...) -> _T_JsonMap: ...
     def as_template(
@@ -106,24 +114,37 @@ class Document:
     ) -> _T_JsonMap: ...
 
 class Field:
-    def __init__(self, multi: bool = ..., required: bool = ...): ...
+    def __init__(self, *, multi: bool = ..., required: bool = ...): ...
 
 class Boolean(Field): ...
-class Date(Field): ...
 class Integer(Field): ...
+class Long(Field): ...
+class Float(Field): ...
+
+class Date(Field):
+    def _deserialize(self, data: object) -> Union[datetime, date]: ...
 
 class Keyword(Field):
-    def __init__(self, multi: bool = ..., required: bool = ..., index: bool = ...): ...
+    def __init__(
+        self,
+        *,
+        multi: bool = ...,
+        required: bool = ...,
+        doc_values: bool = ...,
+        index: bool = ...,
+    ): ...
 
 class Text(Field):
     def __init__(
         self,
+        *,
         multi: bool = ...,
         required: bool = ...,
-        index_options: str = ...,
+        index_options: Optional[str] = ...,
         index_phrases: bool = ...,
         analyzer: Union[None, str, analyzer] = ...,
         fields: Optional[Mapping[str, Text]] = ...,
+        term_vector: Optional[str] = ...,
     ): ...
 
 _T_InnerDoc = TypeVar("_T_InnerDoc", bound=InnerDoc)
@@ -134,6 +155,7 @@ class Object(Field):
         doc_class: Optional[Type[_T_InnerDoc]] = ...,
         dynamic: Union[None, bool, str] = ...,
         properties: Optional[Mapping[str, object]] = ...,
+        *,
         multi: bool = ...,
         required: bool = ...,
     ): ...
