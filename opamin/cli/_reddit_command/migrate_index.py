@@ -21,8 +21,11 @@ from typing import Sequence
 from overrides import overrides
 from typing_extensions import Final
 
-from ..._util.elasticsearch import establish_elasticsearch_connection
-from ...data.reddit import migrate_reddit_index
+from ..._util.elasticsearch import (
+    establish_elasticsearch_connection,
+    migrate_elasticsearch_index,
+)
+from ...data.reddit import REDDIT_INDEX, RedditPost
 from .._command import Command
 
 LOGGER: Final[Logger] = getLogger(__name__)
@@ -65,6 +68,8 @@ class MigrateIndexRedditCommand(Command):
         establish_elasticsearch_connection(self._config)
 
         LOGGER.info("Migrating Reddit index settings and mappings to new index.")
-        migrate_reddit_index(move_data=self._args.move_data)
+        migrate_elasticsearch_index(
+            REDDIT_INDEX, RedditPost, move_data=self._args.move_data
+        )
         # TODO: implement monitoring the reindexation for progress. See:
         #  https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-reindex.html#docs-reindex-task-api

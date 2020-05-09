@@ -26,11 +26,11 @@ from typing_extensions import Final
 from ...data.reddit import load_reddit_dicts_from_dump
 from .._command import Command
 
-LOGGER: Final[Logger] = getLogger(__name__)
+_LOGGER: Final[Logger] = getLogger(__name__)
 
 
 def _sample_dumps(pushshift_dir: Path) -> None:
-    LOGGER.info("Sampling all downloaded Pushshift dumps.")
+    _LOGGER.info("Sampling all downloaded Pushshift dumps.")
 
     samples = []
     for dump in pushshift_dir.iterdir():
@@ -38,7 +38,7 @@ def _sample_dumps(pushshift_dir: Path) -> None:
             continue
         samples.append(_sample_dump(dump))
 
-    LOGGER.info("Concatenating individual samples.")
+    _LOGGER.info("Concatenating individual samples.")
     with (pushshift_dir / "all.sample").open("w", encoding="UTF-8") as fout:
         for sample in samples:
             with sample.open("r", encoding="UTF-8") as fin:
@@ -49,7 +49,7 @@ def _sample_dumps(pushshift_dir: Path) -> None:
 def _sample_dump(dump: Path) -> Path:
     sample = dump.parent / (dump.name + ".sample")
     if sample.exists():
-        LOGGER.debug(f"Sample of {dump.name} already exists, skipping.")
+        _LOGGER.debug(f"Sample of {dump.name} already exists, skipping.")
         return sample
 
     keys = Counter[str]()

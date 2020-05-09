@@ -30,7 +30,7 @@ from ..._util.download import download_file_with_progressbar, sha256sum
 from ...errors import ChecksumsNotMatchingError, FileNotOnServerError
 from .._command import Command
 
-LOGGER: Final[Logger] = getLogger(__name__)
+_LOGGER: Final[Logger] = getLogger(__name__)
 
 
 class DumpType(Enum):
@@ -74,7 +74,7 @@ def _advance_date_by_one_month(current_date: date) -> date:
 def _download_dumps(
     type_: DumpType, since: Optional[date], until: Optional[date], pushshift_dir: Path,
 ) -> None:
-    LOGGER.info(
+    _LOGGER.info(
         f"Download Pushshift dumps of Reddit {type_.name.lower()} "
         f"from '{since or 'earliest'} to '{until or 'latest'}'."
     )
@@ -111,7 +111,7 @@ def _download_dump(
         file_name = file_name.format(current_date_str)
         target = pushshift_dir / file_name
         if target.exists():
-            LOGGER.debug(f"File {file_name} already exists, skipping.")
+            _LOGGER.debug(f"File {file_name} already exists, skipping.")
             return
 
     for file_name in PUSHSHIFT_FILE_NAMES[type_]:
@@ -134,7 +134,7 @@ def _download_dump(
 
     expected_checksum = checksums.get(file_name)
     if expected_checksum is None:
-        LOGGER.info(f"No checksum available for file {file_name}.")
+        _LOGGER.info(f"No checksum available for file {file_name}.")
     else:
         checksum = sha256sum(target_tmp)
         if checksum != expected_checksum:

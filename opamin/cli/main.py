@@ -37,7 +37,7 @@ from ._reddit_command.migrate_index import MigrateIndexRedditCommand
 from ._reddit_command.reddit_command import RedditCommand
 from ._reddit_command.sample_pushshift import SamplePushshiftRedditCommand
 
-LOGGER: Final[Logger] = getLogger(__name__)
+_LOGGER: Final[Logger] = getLogger(__name__)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
@@ -123,10 +123,10 @@ def _load_args(argv: Sequence[str]) -> Command:
 
     numeric_log_level = getattr(logging, args.log_level)
     setup_logging(numeric_log_level)
-    LOGGER.debug(f"Opamin version: {opamin.__version__}")
-    LOGGER.debug(f"Raw arguments: {argv}")
-    LOGGER.debug(f"Parsed arguments: {vars(args)}")
-    LOGGER.debug(f"Parsed command {args.command.__module__}.{args.command.__name__}")
+    _LOGGER.debug(f"Opamin version: {opamin.__version__}")
+    _LOGGER.debug(f"Raw arguments: {argv}")
+    _LOGGER.debug(f"Parsed arguments: {vars(args)}")
+    _LOGGER.debug(f"Parsed command {args.command.__module__}.{args.command.__name__}")
 
     config = _load_config(args.config, argparser)
 
@@ -182,7 +182,7 @@ def _load_config(path: Path, argparser: ArgumentParser) -> Mapping[str, object]:
             "config file to this location and set your personal settings/secrets."
         )
 
-    LOGGER.debug(f"Loading config from '{path}'...")
+    _LOGGER.debug(f"Loading config from '{path}'...")
     with path.open(encoding="UTF-8") as fin:
         config = toml.load(fin)
 
@@ -194,8 +194,8 @@ def _load_config(path: Path, argparser: ArgumentParser) -> Mapping[str, object]:
             }
         return "<hidden>" if hidden else value
 
-    LOGGER.debug("Loaded config:")
+    _LOGGER.debug("Loaded config:")
     for line in toml.dumps(cast(Mapping[str, Any], hide_secrets(config))).splitlines():
-        LOGGER.debug("  " + line)
+        _LOGGER.debug("  " + line)
 
     return config

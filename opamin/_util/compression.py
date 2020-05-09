@@ -30,7 +30,7 @@ from tqdm import tqdm
 from typing_extensions import Final
 from zstandard import ZstdDecompressor
 
-LOGGER: Final[Logger] = getLogger(__name__)
+_LOGGER: Final[Logger] = getLogger(__name__)
 
 
 class DecompressingTextIOWrapper(TextIOWrapper):
@@ -57,7 +57,7 @@ class DecompressingTextIOWrapper(TextIOWrapper):
             self._fin = cast(IO[bytes], ZstdDecompressor().stream_reader(self._fp))
         else:
             if warn_uncompressed:
-                LOGGER.warning(
+                _LOGGER.warning(
                     f"Could not detect compression type of file '{path}' from its "
                     "extension, treating as uncompressed file."
                 )

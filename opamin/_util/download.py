@@ -27,7 +27,7 @@ from typing_extensions import Final
 
 from ..errors import FileNotOnServerError
 
-LOGGER: Final[Logger] = getLogger(__name__)
+_LOGGER: Final[Logger] = getLogger(__name__)
 
 
 # Adapted from: https://stackoverflow.com/a/37573701/211404
@@ -39,7 +39,7 @@ def download_file_with_progressbar(url: str, dest: Path, description: str) -> No
             f"Unexpected status code {status.value} {status.name}."
         )
 
-    LOGGER.debug(f"Downloading url '{url}' to file '{dest}'...")
+    _LOGGER.debug(f"Downloading url '{url}' to file '{dest}'...")
 
     total_size = int(response.headers.get("content-length", 0))
     chunk_size = 2 ** 12  # 4 Kib
@@ -53,7 +53,7 @@ def download_file_with_progressbar(url: str, dest: Path, description: str) -> No
             progress_bar.update(len(chunk))
 
     if total_size != 0 and total_size != wrote_bytes:
-        LOGGER.warning(
+        _LOGGER.warning(
             f"  Downloaded file size mismatch, expected {total_size} bytes got "
             f"{wrote_bytes} bytes."
         )

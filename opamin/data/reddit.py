@@ -21,7 +21,7 @@ from datetime import date, datetime
 from json import JSONDecodeError
 from logging import Logger, getLogger
 from pathlib import Path
-from typing import Any, Dict, Iterator, Mapping, Type, TypeVar, Union, cast
+from typing import Any, Iterator, Mapping, Type, TypeVar, Union, cast
 
 import elasticsearch_dsl
 from elasticsearch import Elasticsearch
@@ -41,7 +41,6 @@ from elasticsearch_dsl import (
     Text,
     analyzer,
     char_filter,
-    connections,
     token_filter,
     tokenizer,
 )
@@ -110,149 +109,18 @@ from .._util.compression import DecompressingTextIOWrapper
 #   did not yield a very noticeable change in index size but severely reduces stuff we
 #   can do with the data.
 
-# TODO: Data reading has not been implemted yet. Do so! Take the old code as reference:
+# TODO: Data reading has not been implemented yet. Do so! Take old code as reference:
 #   https://github.com/lschmelzeisen/opamin/blob/03b35d4005fc1642662e69672de4cd2d4ca4660e/opamin/data/reddit.py
 
-LOGGER: Final[Logger] = getLogger(__name__)
+_LOGGER: Final[Logger] = getLogger(__name__)
 
-INDEX_ALIAS: Final[str] = "reddit"
-INDEX_OPTIONS: Final[str] = "offsets"
-INDEX_PHRASES: Final[bool] = False
-INDEX_TERM_VECTOR: Final[str] = "no"
-
-
-def ensure_reddit_index_available() -> None:
-    if not Index(INDEX_ALIAS).exists():
-        raise Exception("Reddit Index does not exist. Run: opamin reddit migrate-index")
-
-
-def migrate_reddit_index(move_data: bool = True) -> None:
-    """Creates a new Index with current mapping settings.
-
-    The index is versioned by including the current timestamp in its name. Through this,
-    existing previous indices with potentially incompatible mappings will not be
-    affected. An alias is pointed to the newest index.
-
-    Implements the alias migration pattern, based on:
-    https://github.com/elastic/elasticsearch-dsl-py/blob/9b1a39dd47e8678bc4885b03b138293e189471d0/examples/alias_migration.py
-
-    :param move_data: If true, reindex all data from the previous index to the new one
-        (before updating the alias).
-    """
-
-    new_index_name = INDEX_ALIAS + "-" + datetime.now().strftime("%Y%m%d-%H%M%S")
-    RedditPost.init(index=new_index_name)
-
-    new_index = Index(new_index_name)
-    all_indices = Index(INDEX_ALIAS + "-*")
-
-    if move_data:
-        # TODO: test if this works and what happens if no previous index exists.
-        connections.get_connection().reindex(
-            body={"source": {"index": INDEX_ALIAS}, "dest": {"index": new_index_name}},
-            request_timeout=3600,
-            # TODO: find out if timeout works for large index
-            # TODO: check if parameter name is actually `request_timeout` and not
-            #  `timeout` as indicated by source.
-        )
-        new_index.refresh()
-
-    if all_indices.exists_alias(name=INDEX_ALIAS):
-        all_indices.delete_alias(name=INDEX_ALIAS)
-    new_index.put_alias(name=INDEX_ALIAS)
-
-
-def _log_field_mapping(field_mapping: Mapping[str, object], *, depth: int) -> None:
-    indent = "  " * depth
-    for line in json.dumps(field_mapping, indent=2).splitlines():
-        if line == "{" or line == "}":
-            continue
-        LOGGER.info(indent + line)
-
-
-def _recursive_mapping_diff(
-    current_mapping: Dict[str, Mapping[str, object]],
-    unaltered_mapping: Dict[str, Mapping[str, object]],
-    *,
-    depth: int = 0,
-) -> None:
-    indent = "  " * depth
-    for field, current_field_mapping in current_mapping.items():
-        unaltered_field_mapping = unaltered_mapping.pop(field, None)
-        if current_field_mapping == unaltered_field_mapping:
-            continue
-
-        if not unaltered_field_mapping:
-            LOGGER.info(indent + field + ": only exists in current dynamic mapping.")
-            LOGGER.info(f"{indent}  [current]")
-            _log_field_mapping(current_field_mapping, depth=depth + 1)
-            continue
-
-        LOGGER.info(indent + field + ":")
-        if (
-            "properties" in current_field_mapping
-            and "properties" in unaltered_field_mapping
-        ):
-            _recursive_mapping_diff(
-                cast(
-                    Dict[str, Mapping[str, object]],
-                    current_field_mapping["properties"],
-                ),
-                cast(
-                    Dict[str, Mapping[str, object]],
-                    unaltered_field_mapping["properties"],
-                ),
-                depth=depth + 1,
-            )
-        else:
-            LOGGER.info(f"{indent}  [current]")
-            _log_field_mapping(current_field_mapping, depth=depth + 1)
-            LOGGER.info(f"{indent}  [unaltered]")
-            _log_field_mapping(unaltered_field_mapping, depth=depth + 1)
-
-    for field, unaltered_field_mapping in unaltered_mapping.items():
-        LOGGER.info(indent + field + ": only exists in unaltered mapping.")
-        LOGGER.info(f"{indent}  [unaltered]")
-        _log_field_mapping(unaltered_field_mapping, depth=depth + 1)
-
-
-def debug_dynamic_mapping_difference() -> None:
-    """Log diff between current ElasticSearch mapping and the RedditPost-induced one."""
-
-    ensure_reddit_index_available()
-    current_index = Index(INDEX_ALIAS)
-
-    unaltered_index_name = "test-" + INDEX_ALIAS
-    RedditPost.init(index=unaltered_index_name)
-    unaltered_index = Index(unaltered_index_name)
-
-    current_mapping = cast(
-        Mapping[str, Mapping[str, Mapping[str, Dict[str, Mapping[str, object]]]]],
-        current_index.get_mapping(),
-    )
-    unaltered_mapping = cast(
-        Mapping[str, Mapping[str, Mapping[str, Dict[str, Mapping[str, object]]]]],
-        unaltered_index.get_mapping(),
-    )
-
-    if not current_mapping or not unaltered_mapping:
-        LOGGER.error("Could not get unaltered or current mapping.")
-        return
-
-    current_mapping = next(iter(current_mapping.values()))["mappings"]["properties"]
-    unaltered_mapping = next(iter(unaltered_mapping.values()))["mappings"]["properties"]
-    _recursive_mapping_diff(current_mapping, unaltered_mapping)
-
-    unaltered_index.delete()
-
-
-standard_uax_url_email_analyzer = analyzer(
+_STANDARD_ANALYZER = analyzer(
     "standard_uax_url_email",
     char_filter=[char_filter("html_strip")],
     tokenizer=tokenizer("uax_url_email"),
     filter=[token_filter("asciifolding"), token_filter("lowercase")],
 )
-english_uax_url_email_analyzer = analyzer(
+_ENGLISH_ANALYZER = analyzer(
     "english_uax_url_email",
     char_filter=[char_filter("html_strip")],
     tokenizer=tokenizer("uax_url_email"),
@@ -266,6 +134,13 @@ english_uax_url_email_analyzer = analyzer(
         token_filter("english_stemmer", type="stemmer", language="english"),
     ],
 )
+
+_INDEX_ALIAS: Final[str] = "reddit"
+_INDEX_OPTIONS: Final[str] = "offsets"
+_INDEX_PHRASES: Final[bool] = False
+_INDEX_TERM_VECTOR: Final[str] = "no"
+
+REDDIT_INDEX = Index(_INDEX_ALIAS)
 
 
 class RedditDate(Date):
@@ -300,10 +175,10 @@ class RedditFlairRichtext(InnerDoc):
     a = Keyword()
     e = Keyword()
     t = Text(
-        index_options=INDEX_OPTIONS,
-        index_phrases=INDEX_PHRASES,
-        analyzer=standard_uax_url_email_analyzer,
-        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
+        index_options=_INDEX_OPTIONS,
+        index_phrases=_INDEX_PHRASES,
+        analyzer=_STANDARD_ANALYZER,
+        fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
     )
     u = Keyword(doc_values=False, index=False)
 
@@ -322,10 +197,10 @@ class RedditAwarding(InnerDoc):
     days_of_drip_extension = Integer()
     days_of_premium = Integer()
     description = Text(
-        index_options=INDEX_OPTIONS,
-        index_phrases=INDEX_PHRASES,
-        analyzer=standard_uax_url_email_analyzer,
-        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
+        index_options=_INDEX_OPTIONS,
+        index_phrases=_INDEX_PHRASES,
+        analyzer=_STANDARD_ANALYZER,
+        fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
     )
     end_date = RedditDate()
     icon_height = Integer()
@@ -373,11 +248,11 @@ class RedditLinkMediaOEmbed(InnerDoc):
     author_url = Keyword()
     cache_age = Long()
     description = Text(
-        index_options=INDEX_OPTIONS,
-        index_phrases=INDEX_PHRASES,
-        analyzer=standard_uax_url_email_analyzer,
-        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
-        term_vector=INDEX_TERM_VECTOR,
+        index_options=_INDEX_OPTIONS,
+        index_phrases=_INDEX_PHRASES,
+        analyzer=_STANDARD_ANALYZER,
+        fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
+        term_vector=_INDEX_TERM_VECTOR,
     )
     height = Integer()
     html = Keyword(doc_values=False, index=False)
@@ -390,11 +265,11 @@ class RedditLinkMediaOEmbed(InnerDoc):
     thumbnail_size = Integer()
     thumbnail_width = Integer()
     title = Text(
-        index_options=INDEX_OPTIONS,
-        index_phrases=INDEX_PHRASES,
-        analyzer=standard_uax_url_email_analyzer,
-        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
-        term_vector=INDEX_TERM_VECTOR,
+        index_options=_INDEX_OPTIONS,
+        index_phrases=_INDEX_PHRASES,
+        analyzer=_STANDARD_ANALYZER,
+        fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
+        term_vector=_INDEX_TERM_VECTOR,
     )
     type = Keyword()
     version = Keyword()
@@ -416,10 +291,10 @@ class RedditLinkMediaRedditVideo(InnerDoc):
 
 class RedditLinkMedia(InnerDoc):
     content = Text(
-        index_options=INDEX_OPTIONS,
-        index_phrases=INDEX_PHRASES,
-        analyzer=standard_uax_url_email_analyzer,
-        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
+        index_options=_INDEX_OPTIONS,
+        index_phrases=_INDEX_PHRASES,
+        analyzer=_STANDARD_ANALYZER,
+        fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
     )
     event_id = Keyword()
     height = Integer()
@@ -431,10 +306,10 @@ class RedditLinkMedia(InnerDoc):
 
 class RedditLinkMediaEmbed(InnerDoc):
     content = Text(
-        index_options=INDEX_OPTIONS,
-        index_phrases=INDEX_PHRASES,
-        analyzer=standard_uax_url_email_analyzer,
-        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
+        index_options=_INDEX_OPTIONS,
+        index_phrases=_INDEX_PHRASES,
+        analyzer=_STANDARD_ANALYZER,
+        fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
     )
     height = Integer()
     media_domain_url = Keyword(doc_values=False, index=False)
@@ -479,11 +354,11 @@ class RedditLinkCollection(InnerDoc):
     collection_id = Keyword(doc_values=False)
     created_at_utc = RedditDate()
     description = Text(
-        index_options=INDEX_OPTIONS,
-        index_phrases=INDEX_PHRASES,
-        analyzer=standard_uax_url_email_analyzer,
-        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
-        term_vector=INDEX_TERM_VECTOR,
+        index_options=_INDEX_OPTIONS,
+        index_phrases=_INDEX_PHRASES,
+        analyzer=_STANDARD_ANALYZER,
+        fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
+        term_vector=_INDEX_TERM_VECTOR,
     )
     display_layout = Keyword()
     last_update_utc = RedditDate()
@@ -491,11 +366,11 @@ class RedditLinkCollection(InnerDoc):
     permalink = Keyword(doc_values=False, index=False)
     subreddit_id = Keyword()
     title = Text(
-        index_options=INDEX_OPTIONS,
-        index_phrases=INDEX_PHRASES,
-        analyzer=standard_uax_url_email_analyzer,
-        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
-        term_vector=INDEX_TERM_VECTOR,
+        index_options=_INDEX_OPTIONS,
+        index_phrases=_INDEX_PHRASES,
+        analyzer=_STANDARD_ANALYZER,
+        fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
+        term_vector=_INDEX_TERM_VECTOR,
     )
 
 
@@ -527,6 +402,15 @@ class RedditPost(Document):
     # following). However, this was only observed over a small sample of ~90000 posts
     # (spanning the time from 2005 to 2019).
 
+    class Index:
+        name = _INDEX_ALIAS
+        settings = {
+            "number_of_shards": 1,
+            "number_of_replicas": 0,
+            "codec": "best_compression",
+        }
+        analyzers = [_STANDARD_ANALYZER, _ENGLISH_ANALYZER]
+
     type_ = Keyword(required=True)
 
     id = Keyword(doc_values=False, index=False)
@@ -546,10 +430,10 @@ class RedditPost(Document):
     author_flair_richtext = Nested(RedditFlairRichtext)
     author_flair_template_id = Keyword()
     author_flair_text = Text(
-        index_options=INDEX_OPTIONS,
-        index_phrases=INDEX_PHRASES,
-        analyzer=standard_uax_url_email_analyzer,
-        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
+        index_options=_INDEX_OPTIONS,
+        index_phrases=_INDEX_PHRASES,
+        analyzer=_STANDARD_ANALYZER,
+        fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
     )
     author_flair_text_color = Keyword(doc_values=False, index=False)
     author_flair_type = Keyword()
@@ -638,27 +522,27 @@ class RedditPost(Document):
         # later.
         post_dict.pop("crosspost_parent_list", None)
 
-        kind: Type[RedditPost]
+        post_cls: Type[RedditPost]
         _id = post_dict["id"]
         assert isinstance(_id, str) and _id
         if "title" in post_dict:
-            kind = RedditLink
+            post_cls = RedditLink
             post_dict["_id"] = "t1_" + _id
         elif "body" in post_dict:
-            kind = RedditComment
+            post_cls = RedditComment
             post_dict["_id"] = "t3_" + _id
         else:
             raise ValueError(
                 "Could not determine whether given post is link or comment."
             )
 
-        return kind(**post_dict)
+        return post_cls(**post_dict)
 
     @classmethod
     @overrides
     def _matches(cls, hit: Mapping[str, object]) -> bool:
         """Checks if a search hit can be converted to this class or a subclass."""
-        if not cast(str, hit["_index"]).startswith(INDEX_ALIAS + "-"):
+        if not cast(str, hit["_index"]).startswith(_INDEX_ALIAS + "-"):
             return False
         elif cls == RedditPost:
             return True
@@ -689,33 +573,24 @@ class RedditPost(Document):
             super().search(using=using, index=index).filter("term", type_=cls.__name__)
         )
 
-    class Index:
-        name = INDEX_ALIAS
-        settings = {
-            "number_of_shards": 1,
-            "number_of_replicas": 0,
-            "codec": "best_compression",
-        }
-        analyzers = [standard_uax_url_email_analyzer, english_uax_url_email_analyzer]
-
 
 class RedditLink(RedditPost):
     domain = Keyword()
     url = Keyword()
 
     title = Text(
-        index_options=INDEX_OPTIONS,
-        index_phrases=INDEX_PHRASES,
-        analyzer=standard_uax_url_email_analyzer,
-        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
-        term_vector=INDEX_TERM_VECTOR,
+        index_options=_INDEX_OPTIONS,
+        index_phrases=_INDEX_PHRASES,
+        analyzer=_STANDARD_ANALYZER,
+        fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
+        term_vector=_INDEX_TERM_VECTOR,
     )
     selftext = Text(
-        index_options=INDEX_OPTIONS,
-        index_phrases=INDEX_PHRASES,
-        analyzer=standard_uax_url_email_analyzer,
-        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
-        term_vector=INDEX_TERM_VECTOR,
+        index_options=_INDEX_OPTIONS,
+        index_phrases=_INDEX_PHRASES,
+        analyzer=_STANDARD_ANALYZER,
+        fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
+        term_vector=_INDEX_TERM_VECTOR,
     )
     selftext_html = Keyword(doc_values=False, index=False)
 
@@ -724,10 +599,10 @@ class RedditLink(RedditPost):
     link_flair_richtext = Nested(RedditFlairRichtext)
     link_flair_template_id = Keyword()
     link_flair_text = Text(
-        index_options=INDEX_OPTIONS,
-        index_phrases=INDEX_PHRASES,
-        analyzer=standard_uax_url_email_analyzer,
-        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
+        index_options=_INDEX_OPTIONS,
+        index_phrases=_INDEX_PHRASES,
+        analyzer=_STANDARD_ANALYZER,
+        fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
     )
     link_flair_text_color = Keyword(doc_values=False, index=False)
     link_flair_type = Keyword()
@@ -828,11 +703,11 @@ class RedditComment(RedditPost):
     permalink_url = Keyword(doc_values=False, index=False)
 
     body = Text(
-        index_options=INDEX_OPTIONS,
-        index_phrases=INDEX_PHRASES,
-        analyzer=standard_uax_url_email_analyzer,
-        fields={"english_analyzed": Text(analyzer=english_uax_url_email_analyzer)},
-        term_vector=INDEX_TERM_VECTOR,
+        index_options=_INDEX_OPTIONS,
+        index_phrases=_INDEX_PHRASES,
+        analyzer=_STANDARD_ANALYZER,
+        fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
+        term_vector=_INDEX_TERM_VECTOR,
     )
     body_html = Keyword(doc_values=False, index=False)
 
@@ -859,5 +734,5 @@ def load_reddit_dicts_from_dump(file: Path) -> Iterator[Mapping[str, object]]:
             try:
                 yield json.loads(line)
             except JSONDecodeError:
-                LOGGER.error(f"Error in line {line_no} of file '{file}'.")
+                _LOGGER.error(f"Error in line {line_no} of file '{file}'.")
                 raise

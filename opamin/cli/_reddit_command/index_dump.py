@@ -23,12 +23,12 @@ from elasticsearch.helpers import bulk
 from overrides import overrides
 from typing_extensions import Final
 
-from ..._util.elasticsearch import establish_elasticsearch_connection
-from ...data.reddit import (
-    RedditPost,
-    ensure_reddit_index_available,
-    load_reddit_dicts_from_dump,
+from ..._util.elasticsearch import (
+    debug_dynamic_mapping_difference,
+    ensure_elasticsearch_index_available,
+    establish_elasticsearch_connection,
 )
+from ...data.reddit import REDDIT_INDEX, RedditPost, load_reddit_dicts_from_dump
 from .._command import Command
 
 LOGGER: Final[Logger] = getLogger(__name__)
@@ -63,13 +63,11 @@ class IndexDumpRedditCommand(Command):
     @overrides
     def run(self) -> None:
         elasticsearch = establish_elasticsearch_connection(self._config)
-        ensure_reddit_index_available()
+        ensure_elasticsearch_index_available(REDDIT_INDEX)
 
         LOGGER.info(f"Indexing Reddit dump file '{self._args.file}'...")
 
-        from ...data.reddit import debug_dynamic_mapping_difference
-
-        debug_dynamic_mapping_difference()
+        debug_dynamic_mapping_difference(REDDIT_INDEX, RedditPost)
 
         _num_success, num_failed = bulk(
             elasticsearch,
