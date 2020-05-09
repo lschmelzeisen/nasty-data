@@ -18,13 +18,14 @@ from logging import Logger, getLogger
 from pathlib import Path
 from typing import Mapping, cast
 
+from elasticsearch import Elasticsearch
 from elasticsearch_dsl import connections
 from typing_extensions import Final
 
 LOGGER: Final[Logger] = getLogger(__name__)
 
 
-def establish_elasticsearch_connection(config: Mapping[str, object]) -> None:
+def establish_elasticsearch_connection(config: Mapping[str, object]) -> Elasticsearch:
     c = cast(Mapping[str, object], config["elasticsearch-secrets"])  # Shortcut alias.
     host = cast(str, c["host"])
     port = cast(int, c["port"])
@@ -39,7 +40,7 @@ def establish_elasticsearch_connection(config: Mapping[str, object]) -> None:
         )
 
     LOGGER.debug("Registering Elasticsearch connection.")
-    connections.create_connection(
+    return connections.create_connection(
         hosts=host,
         port=port,
         http_auth=(user, password),

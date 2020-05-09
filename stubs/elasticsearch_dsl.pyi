@@ -39,7 +39,7 @@ class connections:  # noqa: N801
         http_compress: bool = ...,
         max_retries: int = ...,
         timeout: int = ...,
-    ) -> None: ...
+    ) -> Elasticsearch: ...
     @classmethod
     def get_connection(cls, alias: str = ...) -> Elasticsearch: ...
 
@@ -102,6 +102,7 @@ class Document:
     def search(
         cls: Type[_T_Document], using: _T_Using = ..., index: _T_Index = ...,
     ) -> Search[_T_Document]: ...
+    def full_clean(self) -> None: ...
     def save(
         self,
         validate: bool = ...,
