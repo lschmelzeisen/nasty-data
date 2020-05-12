@@ -142,8 +142,8 @@ def debug_dynamic_mapping_difference(index: Index, mapping_cls: Type[Document]) 
             return
 
         _recursive_mapping_diff(
-            next(iter(current_mapping.values()))["mappings"]["properties"],
-            next(iter(unaltered_mapping.values()))["mappings"]["properties"],
+            next(iter(current_mapping.values()))["mappings"].get("properties", {}),
+            next(iter(unaltered_mapping.values()))["mappings"].get("properties", {}),
         )
 
     finally:

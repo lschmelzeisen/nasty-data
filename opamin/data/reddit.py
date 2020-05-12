@@ -38,6 +38,7 @@ from elasticsearch_dsl import (
     Nested,
     Object,
     Search,
+    Short,
     Text,
     analyzer,
     char_filter,
@@ -88,10 +89,6 @@ from .._util.compression import DecompressingTextIOWrapper
 #   different IDs in code that uses this. One direct consequence of this is, because the
 #   Pushshift dataset contains posts with the same IDs multiple times in rare cases,
 #   that we can only store one version of each post with the same ID.
-# - field.Integer was used for all numeric fields because it seemed large enough to
-#   contain all actually occurring values, and for almost all fields there are some
-#   entries in the dataset for which the next smaller type (short) would be too small
-#   (besides gilded but we kept it Integer for consistency).
 # - For analyzers we were again guided by our intended use case of extracting arguments:
 #   recall is much more important for us then precision and we basically only care about
 #   English text. For this reason we perform asciifolding and add a second analyzer that
@@ -114,6 +111,12 @@ from .._util.compression import DecompressingTextIOWrapper
 
 _LOGGER: Final[Logger] = getLogger(__name__)
 
+REDDIT_INDEX = Index("opamin-reddit")
+
+_INDEX_OPTIONS: Final[str] = "offsets"
+_INDEX_PHRASES: Final[bool] = False
+_INDEX_TERM_VECTOR: Final[str] = "no"
+
 _STANDARD_ANALYZER = analyzer(
     "standard_uax_url_email",
     char_filter=[char_filter("html_strip")],
@@ -134,13 +137,6 @@ _ENGLISH_ANALYZER = analyzer(
         token_filter("english_stemmer", type="stemmer", language="english"),
     ],
 )
-
-_INDEX_ALIAS: Final[str] = "reddit"
-_INDEX_OPTIONS: Final[str] = "offsets"
-_INDEX_PHRASES: Final[bool] = False
-_INDEX_TERM_VECTOR: Final[str] = "no"
-
-REDDIT_INDEX = Index(_INDEX_ALIAS)
 
 
 class RedditDate(Date):
@@ -184,9 +180,9 @@ class RedditFlairRichtext(InnerDoc):
 
 
 class RedditAwardingResizedIcon(InnerDoc):
-    height = Integer()
+    height = Short(doc_values=False, index=False)
     url = Keyword(doc_values=False, index=False)
-    width = Integer()
+    width = Short(doc_values=False, index=False)
 
 
 class RedditAwarding(InnerDoc):
@@ -203,9 +199,9 @@ class RedditAwarding(InnerDoc):
         fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
     )
     end_date = RedditDate()
-    icon_height = Integer()
+    icon_height = Short(doc_values=False, index=False)
     icon_url = Keyword(doc_values=False, index=False)
-    icon_width = Integer()
+    icon_width = Short(doc_values=False, index=False)
     id = Keyword()
     is_enabled = Boolean()
     name = Keyword()
@@ -223,8 +219,8 @@ class RedditGildings(InnerDoc):
 
 class RedditMediaMetadataS(InnerDoc):
     u = Keyword(doc_values=False, index=False)
-    x = Integer()
-    y = Integer()
+    x = Short(doc_values=False, index=False)
+    y = Short(doc_values=False, index=False)
     gif = Keyword(doc_values=False, index=False)
     mp4 = Keyword(doc_values=False, index=False)
 
@@ -239,14 +235,14 @@ class RedditMediaMetadata(InnerDoc):
     s = Object(RedditMediaMetadataS)
     status = Keyword()
     t = Keyword()
-    x = Integer()
-    y = Integer()
+    x = Short(doc_values=False, index=False)
+    y = Short(doc_values=False, index=False)
 
 
 class RedditLinkMediaOEmbed(InnerDoc):
     author_name = Keyword()
     author_url = Keyword()
-    cache_age = Long()
+    cache_age = Long(doc_values=False, index=False)
     description = Text(
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
@@ -254,16 +250,16 @@ class RedditLinkMediaOEmbed(InnerDoc):
         fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
         term_vector=_INDEX_TERM_VECTOR,
     )
-    height = Integer()
+    height = Short(doc_values=False, index=False)
     html = Keyword(doc_values=False, index=False)
     html5 = Keyword(doc_values=False, index=False)
-    mean_alpha = Float()
+    mean_alpha = Float(doc_values=False, index=False)
     provider_name = Keyword()
     provider_url = Keyword()
-    thumbnail_height = Integer()
+    thumbnail_height = Short(doc_values=False, index=False)
     thumbnail_url = Keyword(doc_values=False, index=False)
-    thumbnail_size = Integer()
-    thumbnail_width = Integer()
+    thumbnail_size = Short(doc_values=False, index=False)
+    thumbnail_width = Short(doc_values=False, index=False)
     title = Text(
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
@@ -274,14 +270,14 @@ class RedditLinkMediaOEmbed(InnerDoc):
     type = Keyword()
     version = Keyword()
     url = Keyword()
-    width = Integer()
+    width = Short(doc_values=False, index=False)
 
 
 class RedditLinkMediaRedditVideo(InnerDoc):
     dash_url = Keyword(doc_values=False, index=False)
     duration = Integer()
     fallback_url = Keyword(doc_values=False, index=False)
-    height = Integer()
+    height = Short(doc_values=False, index=False)
     hls_url = Keyword(doc_values=False, index=False)
     is_gif = Boolean()
     scrubber_media_url = Keyword(doc_values=False, index=False)
@@ -297,11 +293,11 @@ class RedditLinkMedia(InnerDoc):
         fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
     )
     event_id = Keyword()
-    height = Integer()
+    height = Short(doc_values=False, index=False)
     oembed = Object(RedditLinkMediaOEmbed)
     reddit_video = Object(RedditLinkMediaRedditVideo)
     type = Keyword()
-    width = Integer()
+    width = Short(doc_values=False, index=False)
 
 
 class RedditLinkMediaEmbed(InnerDoc):
@@ -311,16 +307,16 @@ class RedditLinkMediaEmbed(InnerDoc):
         analyzer=_STANDARD_ANALYZER,
         fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
     )
-    height = Integer()
+    height = Short(doc_values=False, index=False)
     media_domain_url = Keyword(doc_values=False, index=False)
     scrolling = Boolean()
-    width = Integer()
+    width = Short(doc_values=False, index=False)
 
 
 class RedditLinkPreviewImageResolution(InnerDoc):
-    height = Integer()
+    height = Short(doc_values=False, index=False)
     url = Keyword(doc_values=False, index=False)
-    width = Integer()
+    width = Short(doc_values=False, index=False)
 
 
 class RedditLinkPreviewImageVariant(InnerDoc):
@@ -358,7 +354,6 @@ class RedditLinkCollection(InnerDoc):
         index_phrases=_INDEX_PHRASES,
         analyzer=_STANDARD_ANALYZER,
         fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
-        term_vector=_INDEX_TERM_VECTOR,
     )
     display_layout = Keyword()
     last_update_utc = RedditDate()
@@ -370,7 +365,6 @@ class RedditLinkCollection(InnerDoc):
         index_phrases=_INDEX_PHRASES,
         analyzer=_STANDARD_ANALYZER,
         fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
-        term_vector=_INDEX_TERM_VECTOR,
     )
 
 
@@ -403,7 +397,7 @@ class RedditPost(Document):
     # (spanning the time from 2005 to 2019).
 
     class Index:
-        name = _INDEX_ALIAS
+        name = REDDIT_INDEX._name
         settings = {
             "number_of_shards": 1,
             "number_of_replicas": 0,
@@ -417,7 +411,7 @@ class RedditPost(Document):
     name = Keyword(doc_values=False, index=False)
     permalink = Keyword(doc_values=False, index=False)
 
-    created = RedditDate()
+    created = RedditDate(doc_values=False, index=False)
     created_utc = RedditDate()
     edited = RedditDate()
     retrieved_on = RedditDate()
@@ -542,7 +536,7 @@ class RedditPost(Document):
     @overrides
     def _matches(cls, hit: Mapping[str, object]) -> bool:
         """Checks if a search hit can be converted to this class or a subclass."""
-        if not cast(str, hit["_index"]).startswith(_INDEX_ALIAS + "-"):
+        if not cast(str, hit["_index"]).startswith(REDDIT_INDEX._name):
             return False
         elif cls == RedditPost:
             return True
@@ -613,8 +607,8 @@ class RedditLink(RedditPost):
     secure_media_embed = Object(RedditLinkMediaEmbed)
     preview = Object(RedditLinkPreview)
     thumbnail = Keyword(doc_values=False, index=False)
-    thumbnail_width = Integer()
-    thumbnail_height = Integer()
+    thumbnail_width = Short(doc_values=False, index=False)
+    thumbnail_height = Short(doc_values=False, index=False)
 
     collections = Nested(RedditLinkCollection)
 
@@ -652,9 +646,9 @@ class RedditLink(RedditPost):
     view_count = Integer()  # For sample, always None if it exists.
 
     whitelist_status = Keyword()
-    wls = Integer()
+    wls = Short()
     parent_whitelist_status = Keyword()
-    pwls = Integer()
+    pwls = Short()
 
     num_comments = Integer()
     num_crossposts = Integer()

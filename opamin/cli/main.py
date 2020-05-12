@@ -36,6 +36,9 @@ from ._reddit_command.index_dump import IndexDumpRedditCommand
 from ._reddit_command.migrate_index import MigrateIndexRedditCommand
 from ._reddit_command.reddit_command import RedditCommand
 from ._reddit_command.sample_pushshift import SamplePushshiftRedditCommand
+from ._twitter_command.index_dump import IndexDumpTwitterCommand
+from ._twitter_command.migrate_index import MigrateIndexTwitterCommand
+from ._twitter_command.twitter_command import TwitterCommand
 
 _LOGGER: Final[Logger] = getLogger(__name__)
 
@@ -54,13 +57,14 @@ def _load_args(argv: Sequence[str]) -> Command:
     ] = defaultdict(
         list,
         {
-            Command: [RedditCommand],
+            Command: [RedditCommand, TwitterCommand],
             RedditCommand: [
                 DownloadPushshiftRedditCommand,
                 SamplePushshiftRedditCommand,
                 MigrateIndexRedditCommand,
                 IndexDumpRedditCommand,
             ],
+            TwitterCommand: [MigrateIndexTwitterCommand, IndexDumpTwitterCommand],
         },
     )
     subparser_by_command_type = {}

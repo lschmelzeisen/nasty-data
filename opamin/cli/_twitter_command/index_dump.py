@@ -28,13 +28,13 @@ from ..._util.elasticsearch import (
     ensure_elasticsearch_index_available,
     establish_elasticsearch_connection,
 )
-from ...data.reddit import REDDIT_INDEX, RedditPost, load_reddit_dicts_from_dump
+from ...data.twitter import TWITTER_INDEX, Tweet, load_tweet_dicts_from_dump
 from .._command import Command
 
 LOGGER: Final[Logger] = getLogger(__name__)
 
 
-class IndexDumpRedditCommand(Command):
+class IndexDumpTwitterCommand(Command):
     @classmethod
     @overrides
     def command(cls) -> str:
@@ -48,7 +48,7 @@ class IndexDumpRedditCommand(Command):
     @classmethod
     @overrides
     def description(cls) -> str:
-        return "Add contents of a given Reddit post dump to Elasticsearch."
+        return "Add contents of a given Tweet dump to Elasticsearch."
 
     @classmethod
     @overrides
@@ -57,17 +57,17 @@ class IndexDumpRedditCommand(Command):
             "file",
             metavar="<FILE>",
             type=Path,
-            help="Add all Reddit posts in a given file to Elasticsearch index.",
+            help="Add all Tweets in a given file to Elasticsearch index.",
         )
 
     @overrides
     def run(self) -> None:
         elasticsearch = establish_elasticsearch_connection(self._config)
-        ensure_elasticsearch_index_available(REDDIT_INDEX)
+        ensure_elasticsearch_index_available(TWITTER_INDEX)
 
-        LOGGER.info(f"Indexing Reddit dump file '{self._args.file}'...")
+        LOGGER.info(f"Indexing Tweet dump file '{self._args.file}'...")
 
-        debug_dynamic_mapping_difference(REDDIT_INDEX, RedditPost)
+        debug_dynamic_mapping_difference(TWITTER_INDEX, Tweet)
 
         _num_success, num_failed = bulk(
             elasticsearch,
@@ -84,8 +84,8 @@ class IndexDumpRedditCommand(Command):
 
 
 def _bulk_helper(file: Path) -> Iterator[Mapping[str, object]]:
-    for post_dict in load_reddit_dicts_from_dump(file):
-        post = RedditPost.from_dict(post_dict)
+    for post_dict in load_tweet_dicts_from_dump(file):
+        post = Tweet.from_dict(post_dict)
 
         # Deserialize data and then serialize again. Needed so that our Python
         # conversion of some data types arrives in the JSON send to ElasticSearch.
