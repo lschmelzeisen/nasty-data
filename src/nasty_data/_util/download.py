@@ -25,7 +25,7 @@ import requests
 from tqdm import tqdm
 from typing_extensions import Final
 
-from ..errors import FileNotOnServerError
+from nasty_data.errors import FileNotOnServerError
 
 _LOGGER: Final[Logger] = getLogger(__name__)
 

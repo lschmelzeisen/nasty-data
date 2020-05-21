@@ -9,7 +9,7 @@ quiet = true
 [tool.coverage]
     [tool.coverage.run]
     branch = true
-    source = ["opamin"]
+    source = ["src"]
 
     [tool.coverage.report]
     exclude_lines = [
@@ -34,7 +34,7 @@ quiet = true
         # Hard to test missing import code.
         "except ImportError",
     ]
-    omit = ["opamin/__main__.py"]
+    omit = ["src/nasty_data/__main__.py"]
     skip_covered = true
     skip_empty = true
 
@@ -49,16 +49,5 @@ include_trailing_comma = true
 use_parentheses = true
 
 [tool.setuptools_scm]
-write_to = "opamin/version.py"
+write_to = "src/nasty_data/_version.py"
 write_to_template = "__version__ = \"{version}\"\n"
-
-[tool.tox]
-legacy_tox_ini = """
-[tox]
-envlist = py37, py38, pypy3
-isolated_builds = true
-
-[testenv]
-commands = pytest --cov --cov-report= --cov-context test --cov-append --html {envdir}/tests-report.html --self-contained-html
-extras = test
-"""

@@ -26,9 +26,9 @@ import requests
 from overrides import overrides
 from typing_extensions import Final
 
-from ..._util.download import download_file_with_progressbar, sha256sum
-from ...errors import ChecksumsNotMatchingError, FileNotOnServerError
-from .._command import Command
+from nasty_data._util.download import download_file_with_progressbar, sha256sum
+from nasty_data.cli._command import Command
+from nasty_data.errors import ChecksumsNotMatchingError, FileNotOnServerError
 
 _LOGGER: Final[Logger] = getLogger(__name__)
 

@@ -13,3 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+
+import logging
+
+try:
+    from nasty_data._version import __version__  # type: ignore
+except ImportError:
+    __version__ = "dev"
+
+__version_info__ = tuple(
+    (int(part) if part.isdigit() else part)
+    for part in __version__.split(".", maxsplit=4)
+)
+
+# Don't show log messages in applications that don't configure logging.
+# See https://docs.python.org/3/howto/logging.html#configuring-logging-for-a-library
+logging.getLogger(__name__).addHandler(logging.NullHandler())

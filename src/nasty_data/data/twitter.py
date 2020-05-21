@@ -14,8 +14,6 @@
 # limitations under the License.
 #
 
-from __future__ import annotations
-
 import json
 from json import JSONDecodeError
 from logging import Logger, getLogger
@@ -41,10 +39,9 @@ from elasticsearch_dsl import (
     token_filter,
     tokenizer,
 )
+from nasty_utils.io_ import DecompressingTextIOWrapper
 from overrides import overrides
 from typing_extensions import Final
-
-from .._util.compression import DecompressingTextIOWrapper
 
 # Tweet objects are fairly well documented, see the following and its subpages:
 # https://developer.twitter.com/en/docs/tweets/data-dictionary/overview/
@@ -479,7 +476,7 @@ class Tweet(Document):
     user = Object(TweetUser)
 
     @classmethod
-    def from_dict(cls, tweet_dict: Mapping[str, object]) -> Tweet:
+    def from_dict(cls, tweet_dict: Mapping[str, object]) -> "Tweet":
         tweet_dict = dict(tweet_dict)
         tweet_dict["_id"] = tweet_dict["id_str"]
 

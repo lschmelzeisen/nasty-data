@@ -19,7 +19,7 @@ from typing import Sequence
 
 from overrides import overrides
 
-from .._command import Command
+from nasty_data.cli._command import Command
 
 
 class RedditCommand(Command):

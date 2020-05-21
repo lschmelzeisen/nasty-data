@@ -23,8 +23,8 @@ from typing import Counter, Mapping, Sequence, cast
 from overrides import overrides
 from typing_extensions import Final
 
-from ...data.reddit import load_reddit_dicts_from_dump
-from .._command import Command
+from nasty_data.cli._command import Command
+from nasty_data.data.reddit import load_reddit_dicts_from_dump
 
 _LOGGER: Final[Logger] = getLogger(__name__)
 

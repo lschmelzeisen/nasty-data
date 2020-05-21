@@ -3,11 +3,11 @@ include LICENSE
 include LICENSE.header
 include Makefile
 include MANIFEST.in
+include noxfile.py
 include pyproject.toml
 include README.rst
 include setup.cfg
 include setup.py
 include vulture-whitelist.py
-recursive-include opamin *.py
-recursive-include stubs *.pyi
+recursive-include src *.py *.typed
 recursive-include tests *.py

@@ -14,8 +14,6 @@
 # limitations under the License.
 #
 
-from __future__ import annotations
-
 from bz2 import BZ2File
 from gzip import GzipFile
 from io import TextIOWrapper
@@ -98,7 +96,7 @@ class DecompressingTextIOWrapper(TextIOWrapper):
         return self._fp.tell()
 
     @overrides
-    def __enter__(self) -> DecompressingTextIOWrapper:
+    def __enter__(self) -> "DecompressingTextIOWrapper":
         return cast(DecompressingTextIOWrapper, super().__enter__())
 
     # In the following the type-comment is used to have Mypy ignore that this method

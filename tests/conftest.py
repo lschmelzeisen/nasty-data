@@ -14,9 +14,11 @@
 # limitations under the License.
 #
 
-from io import BufferedIOBase
-from typing import IO
 
-class ZstdDecompressor:
-    def __init__(self) -> None: ...
-    def stream_reader(self, source: IO[bytes]) -> BufferedIOBase: ...
+from _pytest.config import Config
+from nasty_utils.logging_ import LoggingConfig
+
+
+def pytest_configure(config: Config) -> None:
+    log_config = LoggingConfig(logging={"level": "DEBUG"})
+    log_config.setup_pytest_logging(config)

@@ -14,8 +14,6 @@
 # limitations under the License.
 #
 
-from __future__ import annotations
-
 import json
 from datetime import date, datetime
 from json import JSONDecodeError
@@ -45,10 +43,9 @@ from elasticsearch_dsl import (
     token_filter,
     tokenizer,
 )
+from nasty_utils.io_ import DecompressingTextIOWrapper
 from overrides import overrides
 from typing_extensions import Final
-
-from .._util.compression import DecompressingTextIOWrapper
 
 # This file contains the elasticsearch-dsl mapping for reading and writing Reddit posts
 # (specifically from the Pushshift dumps).
@@ -496,7 +493,7 @@ class RedditPost(Document):
         super().__init__(type_=self.__class__.__name__, *args, **kwargs)
 
     @classmethod
-    def from_dict(cls, post_dict: Mapping[str, object]) -> RedditPost:
+    def from_dict(cls, post_dict: Mapping[str, object]) -> "RedditPost":
         # We do want to modify the caller's dict. Because we don't modify subdicts a
         # shallow copy is enough here.
         post_dict = dict(post_dict)
@@ -544,7 +541,7 @@ class RedditPost(Document):
 
     @classmethod
     @overrides
-    def from_es(cls, hit: Mapping[str, object]) -> RedditPost:
+    def from_es(cls, hit: Mapping[str, object]) -> "RedditPost":
         """Convert a search hit to the corresponding (sub)class."""
         if cls == RedditPost:
             source = cast(Mapping[str, object], hit["_source"])

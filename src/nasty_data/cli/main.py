@@ -26,19 +26,20 @@ from typing import Any, Mapping, Optional, Sequence, Type, cast
 import toml
 from typing_extensions import Final
 
-import opamin
-
-from .._util.argparse_ import SingleMetavarHelpFormatter
-from .._util.logging_ import setup_logging
-from ._command import Command
-from ._reddit_command.download_pushshift import DownloadPushshiftRedditCommand
-from ._reddit_command.index_dump import IndexDumpRedditCommand
-from ._reddit_command.migrate_index import MigrateIndexRedditCommand
-from ._reddit_command.reddit_command import RedditCommand
-from ._reddit_command.sample_pushshift import SamplePushshiftRedditCommand
-from ._twitter_command.index_dump import IndexDumpTwitterCommand
-from ._twitter_command.migrate_index import MigrateIndexTwitterCommand
-from ._twitter_command.twitter_command import TwitterCommand
+import nasty_data
+from nasty_data._util.argparse_ import SingleMetavarHelpFormatter
+from nasty_data._util.logging_ import setup_logging
+from nasty_data.cli._command import Command
+from nasty_data.cli._reddit_command.download_pushshift import (
+    DownloadPushshiftRedditCommand,
+)
+from nasty_data.cli._reddit_command.index_dump import IndexDumpRedditCommand
+from nasty_data.cli._reddit_command.migrate_index import MigrateIndexRedditCommand
+from nasty_data.cli._reddit_command.reddit_command import RedditCommand
+from nasty_data.cli._reddit_command.sample_pushshift import SamplePushshiftRedditCommand
+from nasty_data.cli._twitter_command.index_dump import IndexDumpTwitterCommand
+from nasty_data.cli._twitter_command.migrate_index import MigrateIndexTwitterCommand
+from nasty_data.cli._twitter_command.twitter_command import TwitterCommand
 
 _LOGGER: Final[Logger] = getLogger(__name__)
 
@@ -127,7 +128,7 @@ def _load_args(argv: Sequence[str]) -> Command:
 
     numeric_log_level = getattr(logging, args.log_level)
     setup_logging(numeric_log_level)
-    _LOGGER.debug(f"Opamin version: {opamin.__version__}")
+    _LOGGER.debug(f"Opamin version: {nasty_data.__version__}")
     _LOGGER.debug(f"Raw arguments: {argv}")
     _LOGGER.debug(f"Parsed arguments: {vars(args)}")
     _LOGGER.debug(f"Parsed command {args.command.__module__}.{args.command.__name__}")
@@ -157,7 +158,7 @@ def _config_general_args(argparser: ArgumentParser) -> None:
         "-v",
         "--version",
         action="version",
-        version="%(prog)s " + opamin.__version__,
+        version="%(prog)s " + nasty_data.__version__,
         help="Show program's version number and exit.",
     )
 
@@ -165,7 +166,7 @@ def _config_general_args(argparser: ArgumentParser) -> None:
         "--config",
         metavar="<CONFIG>",
         type=Path,
-        default=Path(opamin.__file__).parent.parent / "config.toml",
+        default=Path(nasty_data.__file__).parent.parent / "config.toml",
         help="Config file path (default: config.toml in source dir).",
     )
 

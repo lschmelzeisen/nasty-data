@@ -5,8 +5,8 @@ help: ##- Show this help message.
 
 # ------------------------------------------------------------------------------
 
-venv: ##- Create a new Python 3.7 virtual environment in .venv/ (need to activate manually).
-	@python3.7 -m venv .venv
+venv: ##- Create a new Python virtual environment in .venv/ (need to activate manually).
+	@python3.6 -m venv .venv
 .PHONY: devvenv
 
 devinstall: ##- Install the project in editable mode with all test and dev dependencies (in the currently active environment).
@@ -25,27 +25,27 @@ test-pytest: ##- Run all tests in the currently active environment.
 	@coverage report
 .PHONY: test-pytest
 
-test-tox: ##- Run all tests against all supported Python versions (in separate environments).
+test-nox: ##- Run all tests against all supported Python versions (in separate environments).
 	@coverage erase
-	@tox
+	@nox
 	@coverage html --dir tests-coverage
 	@coverage report
-.PHONY: test-tox
+.PHONY: test-nox
 
 # ------------------------------------------------------------------------------
 
 check: check-flake8 check-mypy check-vulture check-isort check-black ##- Run linters and perform static type-checking.
 .PHONY: check
 
-# Not using including the following in `check`-rule because it always spams
-# output, even in case of success (no quiet flag) and because most of the
-# checking is already performed by flake8.
+# Not using the following in `check`-rule because it always spams output, even
+# in case of success (no quiet flag) and because most of the checking is already
+# performed by flake8.
 check-autoflake: ##- Check for unused imports and variables.
 	@autoflake --check --remove-all-unused-imports --remove-duplicate-keys --remove-unused-variables --recursive .
 .PHONY: check-autoflake
 
 check-flake8: ##- Run linters.
-	@flake8 opamin stubs tests setup.py vulture-whitelist.py
+	@flake8 src tests *.py
 .PHONY: check-flake8
 
 check-mypy: ##- Run static type-checking.
@@ -53,7 +53,7 @@ check-mypy: ##- Run static type-checking.
 .PHONY: check-mypy
 
 check-vulture: ##- Check for unsued code.
-	@vulture opamin vulture-whitelist.py
+	@vulture src tests *.py
 .PHONY: check-vulture
 
 check-isort: ##- Check if imports are sorted correctly.
@@ -70,8 +70,7 @@ format: format-licenseheaders format-autoflake format-isort format-black ##- Aut
 .PHONY: format
 
 format-licenseheaders: ##- Prepend license headers to all code files.
-	@licenseheaders --tmpl LICENSE.header --years 2019-2020 --owner "Lukas Schmelzeisen" --dir opamin
-	@licenseheaders --tmpl LICENSE.header --years 2019-2020 --owner "Lukas Schmelzeisen" --dir stubs --additional-extensions python=.pyi
+	@licenseheaders --tmpl LICENSE.header --years 2019-2020 --owner "Lukas Schmelzeisen" --dir src
 	@licenseheaders --tmpl LICENSE.header --years 2019-2020 --owner "Lukas Schmelzeisen" --dir tests
 .PHONY: format-licenseheaders
 
@@ -97,7 +96,7 @@ publish-setuppy: #-- Build source and binary distributions.
 	@python setup.py sdist bdist_wheel
 .PHONY: publish-setuppy
 
-publish-twine-check: ##- Check source and binary distribtuions for upload.
+publish-twine-check: ##- Check source and binary distributions for upload.
 	@twine check dist/*
 .PHONY: publish-twine-check
 
@@ -112,11 +111,12 @@ publish-twine-upload: ##- Upload to PyPI.
 # ------------------------------------------------------------------------------
 
 clean: ##- Remove all created cache/build files, test/coverage reports, and virtual environments.
-	@rm -rf .coverage* .eggs *.egg-info .mypy_cache .pytest_cache .tox .venv build dist opamin/version.py tests-coverage tests-report.html
+	@rm -rf .coverage* .eggs .mypy_cache .pytest_cache .nox .venv build dist src/*/_version.py src/*.egg-info tests-coverage tests-report.html
+	@find . -type d -name __pycache__ -exec rm -r {} +
 .PHONY: clean
 
 # ------------------------------------------------------------------------------
 
 build-vulture-whitelistpy:  ##- Regenerate vulture whitelist (list of currently seemingly unused code that will not be reported).
-	@vulture opamin --make-whitelist > vulture-whitelist.py || true
+	@vulture src tests *.py --make-whitelist > vulture-whitelist.py || true
 .PHONY: build-vulture-whitelistpy

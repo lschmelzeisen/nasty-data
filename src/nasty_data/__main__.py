@@ -14,19 +14,6 @@
 # limitations under the License.
 #
 
-import logging
+from nasty_data.cli.main import main
 
-__version__ = "dev"
-try:
-    from .version import __version__
-except ImportError:
-    pass
-
-__version_info__ = tuple(
-    (int(part) if part.isdigit() else part)
-    for part in __version__.split(".", maxsplit=4)
-)
-
-# Don't show log messages in applications that don't configure logging.
-# See https://docs.python.org/3/howto/logging.html#configuring-logging-for-a-library
-logging.getLogger(__name__).addHandler(logging.NullHandler())
+main()

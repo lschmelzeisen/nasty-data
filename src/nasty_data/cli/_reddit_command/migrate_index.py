@@ -21,17 +21,17 @@ from typing import Sequence
 from overrides import overrides
 from typing_extensions import Final
 
-from ..._util.elasticsearch import (
+from nasty_data._util.elasticsearch import (
     establish_elasticsearch_connection,
     migrate_elasticsearch_index,
 )
-from ...data.twitter import TWITTER_INDEX, Tweet
-from .._command import Command
+from nasty_data.cli._command import Command
+from nasty_data.data.reddit import REDDIT_INDEX, RedditPost
 
-LOGGER: Final[Logger] = getLogger(__name__)
+_LOGGER: Final[Logger] = getLogger(__name__)
 
 
-class MigrateIndexTwitterCommand(Command):
+class MigrateIndexRedditCommand(Command):
     @classmethod
     @overrides
     def command(cls) -> str:
@@ -46,7 +46,7 @@ class MigrateIndexTwitterCommand(Command):
     @overrides
     def description(cls) -> str:
         return (
-            "Creates a new Twitter Elasticsearch index with current "
+            "Creates a new Reddit Elasticsearch index with current "
             "settings and mappings, updates the index alias."
         )
 
@@ -67,9 +67,9 @@ class MigrateIndexTwitterCommand(Command):
     def run(self) -> None:
         establish_elasticsearch_connection(self._config)
 
-        LOGGER.info("Migrating Twitter index settings and mappings to new index.")
+        _LOGGER.info("Migrating Reddit index settings and mappings to new index.")
         migrate_elasticsearch_index(
-            TWITTER_INDEX, Tweet, move_data=self._args.move_data
+            REDDIT_INDEX, RedditPost, move_data=self._args.move_data
         )
         # TODO: implement monitoring the reindexation for progress. See:
         #  https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-reindex.html#docs-reindex-task-api
