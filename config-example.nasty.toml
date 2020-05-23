@@ -1,0 +1,16 @@
+# Adjust the configurations below to your needs, then move this file to
+# ".config/nasty.toml"
+
+[elasticsearch]
+host = "localhost"
+port = 9200
+user = "elastic"
+password = "PASSWORD"
+ca_crt_path = "ca.crt"
+
+[logging]
+level = "DEBUG"
+
+[logging.loggers]
+urllib3 = "INFO"
+elasticsearch = "WARN"

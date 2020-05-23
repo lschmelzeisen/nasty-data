@@ -29,7 +29,7 @@ class _ElasticsearchSection(Config):
     port: int = ConfigAttr(default=9200)
     user: str = ConfigAttr(default="elastic")
     password: str = ConfigAttr(default="", secret=True)
-    ca_crt_path: Path = ConfigAttr(required=True, deserializer=Path, serializer=str)
+    ca_crt_path: Path = ConfigAttr(required=True)
 
 
 class ElasticsearchConfig(LoggingConfig):
@@ -41,7 +41,7 @@ class ElasticsearchConfig(LoggingConfig):
         if not self.elasticsearch.ca_crt_path.exists():
             raise FileNotFoundError(
                 f"CA-Certificate '{self.elasticsearch.ca_crt_path}' could not be found."
-                "Configuration without a certificate is not supported at this time."
+                " Configuration without a certificate is not supported at this time."
             )
 
         connections.create_connection(

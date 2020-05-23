@@ -301,8 +301,8 @@ class NastyDataProgram(Program[ElasticsearchConfig]):
             version=nasty_data.__version__,
             desc="TODO",
             config_type=ElasticsearchConfig,
-            config_file="data.toml",
-            config_dir="nasty",
+            config_file="nasty.toml",
+            config_dir=".",
             command_hierarchy={
                 Command: [
                     _NewIndexCommand,
