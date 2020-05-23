@@ -38,7 +38,7 @@ from nasty_utils import checked_cast
 from overrides import overrides
 from typing_extensions import Final
 
-from nasty_data.index.index import BaseDocument
+from nasty_data.elasticsearch.index import BaseDocument
 
 # This file contains the elasticsearch-dsl mapping for reading and writing Reddit posts
 # (specifically from the Pushshift dumps).
@@ -633,7 +633,7 @@ class RedditComment(RedditBaseDocument):
         return result
 
 
-class RedditPost(RedditLink, RedditComment):
+class RedditDocument(RedditLink, RedditComment):
     @classmethod
     @overrides
     def prepare_doc_dict(

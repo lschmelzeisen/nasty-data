@@ -37,17 +37,17 @@ from elasticsearch_dsl import (
 from overrides import overrides
 from typing_extensions import Final
 
-from nasty_data.index.index import BaseDocument
+from nasty_data.elasticsearch.index import BaseDocument
 
 # Tweet objects are fairly well documented, see the following and its subpages:
-# https://developer.twitter.com/en/docs/tweets/data-dictionary/overview/
+# https://developer.twitter.com/en/docs/Twitters/data-dictionary/overview/
 #
 # However, Twitter returns different Tweet-JSONs depending on which API was used to
 # obtain them. For this implementation, we only consider:
 # - Twitter API GET statuses/lookup, i.e.,
 #   https://developer.twitter.com/en/docs/tweets/post-and-engage/api-reference/get-statuses-lookup
 #   with extended mode JSON rendering, i.e.,
-#   https://developer.twitter.com/en/docs/tweets/tweet-updates#extended-mode-json-rendering
+#   https://developer.twitter.com/en/docs/tweets/Twitter-updates#extended-mode-json-rendering
 # - The current NASTY-implementation, i.e., https://github.com/lschmelzeisen/nasty
 # TODO: only NASTY tested so far.
 
@@ -79,7 +79,7 @@ _ENGLISH_ANALYZER = analyzer(
 )
 
 
-class TweetJsonAsStr(Keyword):
+class TwitterJsonAsStr(Keyword):
     # TODO: also overwrite serialize
     # TODO: document the different usages of mediaStatnds
     #   "mediaStats": { "r": { "missing": null }, "ttl": -1 }
@@ -90,113 +90,113 @@ class TweetJsonAsStr(Keyword):
         return json.dumps(data)
 
 
-# -- TweetExtensions -------------------------------------------------------------------
+# -- TwitterExtensions -----------------------------------------------------------------
 
 
-class TweetExtensionsMediaStats(InnerDoc):
-    r = TweetJsonAsStr(doc_values=False, index=False)
+class TwitterExtensionsMediaStats(InnerDoc):
+    r = TwitterJsonAsStr(doc_values=False, index=False)
     ttl = Integer(doc_values=False, index=False)
 
 
-class TweetExtensions(InnerDoc):
-    mediaStats = Object(TweetExtensionsMediaStats)  # noqa: N815
+class TwitterExtensions(InnerDoc):
+    mediaStats = Object(TwitterExtensionsMediaStats)  # noqa: N815
 
 
-class TweetExtensionsMediaColorPaletteRgb(InnerDoc):
+class TwitterExtensionsMediaColorPaletteRgb(InnerDoc):
     red = Short(doc_values=False, index=False)
     green = Short(doc_values=False, index=False)
     blue = Short(doc_values=False, index=False)
 
 
-class TweetExtensionsMediaColorPalette(InnerDoc):
-    rgb = Object(TweetExtensionsMediaColorPaletteRgb)
+class TwitterExtensionsMediaColorPalette(InnerDoc):
+    rgb = Object(TwitterExtensionsMediaColorPaletteRgb)
     percentage = Float(doc_values=False, index=False)
 
 
-class TweetExtensionsMediaColor(InnerDoc):
-    palette = Nested(TweetExtensionsMediaColorPalette)
+class TwitterExtensionsMediaColor(InnerDoc):
+    palette = Nested(TwitterExtensionsMediaColorPalette)
 
 
-# -- TweetEntities ---------------------------------------------------------------------
+# -- TwitterEntities ------------------------------------------------------------------
 
 
-class TweetEntitiesIndicesText(InnerDoc):
+class TwitterEntitiesIndicesText(InnerDoc):
     indices = Short(doc_values=False, index=False, multi=True)
     text = Keyword(doc_values=False, index=False)
 
 
-class TweetEntitiesMediaRect(InnerDoc):
+class TwitterEntitiesMediaRect(InnerDoc):
     x = Short(doc_values=False, index=False)
     y = Short(doc_values=False, index=False)
     h = Short(doc_values=False, index=False)
     w = Short(doc_values=False, index=False)
 
 
-class TweetEntitiesMediaOriginalInfo(InnerDoc):
+class TwitterEntitiesMediaOriginalInfo(InnerDoc):
     height = Short(doc_values=False, index=False)
     width = Short(doc_values=False, index=False)
-    focus_rects = Nested(TweetEntitiesMediaRect)
+    focus_rects = Nested(TwitterEntitiesMediaRect)
 
 
-class TweetEntitiesMediaSize(InnerDoc):
+class TwitterEntitiesMediaSize(InnerDoc):
     h = Short(doc_values=False, index=False)
     w = Short(doc_values=False, index=False)
     resize = Keyword(doc_values=False, index=False)
 
 
-class TweetEntitiesMediaSizes(InnerDoc):
-    thumb = Object(TweetEntitiesMediaSize)
-    large = Object(TweetEntitiesMediaSize)
-    medium = Object(TweetEntitiesMediaSize)
-    small = Object(TweetEntitiesMediaSize)
+class TwitterEntitiesMediaSizes(InnerDoc):
+    thumb = Object(TwitterEntitiesMediaSize)
+    large = Object(TwitterEntitiesMediaSize)
+    medium = Object(TwitterEntitiesMediaSize)
+    small = Object(TwitterEntitiesMediaSize)
 
 
-class TweetEntitiesMediaVideoInfoVariant(InnerDoc):
+class TwitterEntitiesMediaVideoInfoVariant(InnerDoc):
     bitrate = Integer()
     content_type = Keyword()
     url = Keyword(doc_values=False, index=False)
 
 
-class TweetEntitiesMediaVideoInfo(InnerDoc):
+class TwitterEntitiesMediaVideoInfo(InnerDoc):
     aspect_ratio = Short(multi=True)
     duration_millis = Integer()
-    variants = Nested(TweetEntitiesMediaVideoInfoVariant)
+    variants = Nested(TwitterEntitiesMediaVideoInfoVariant)
 
 
-class TweetEntitiesMediaFeature(InnerDoc):
-    faces = Nested(TweetEntitiesMediaRect)
+class TwitterEntitiesMediaFeature(InnerDoc):
+    faces = Nested(TwitterEntitiesMediaRect)
 
 
-class TweetEntitiesMediaFeatures(InnerDoc):
-    small = Object(TweetEntitiesMediaFeature)
-    medium = Object(TweetEntitiesMediaFeature)
-    large = Object(TweetEntitiesMediaFeature)
-    orig = Object(TweetEntitiesMediaFeature)
+class TwitterEntitiesMediaFeatures(InnerDoc):
+    small = Object(TwitterEntitiesMediaFeature)
+    medium = Object(TwitterEntitiesMediaFeature)
+    large = Object(TwitterEntitiesMediaFeature)
+    orig = Object(TwitterEntitiesMediaFeature)
 
 
-class TweetEntitiesMediaExtMediaAvailability(InnerDoc):
+class TwitterEntitiesMediaExtMediaAvailability(InnerDoc):
     status = Keyword()
     reason = Keyword()
 
 
-class TweetEntitiesAdditionalMediaInfoCallToAction(InnerDoc):
+class TwitterEntitiesAdditionalMediaInfoCallToAction(InnerDoc):
     url = Keyword()
 
 
-class TweetEntitiesAdditionalMediaInfoCallToActions(InnerDoc):
-    visit_site = Object(TweetEntitiesAdditionalMediaInfoCallToAction)
-    watch_now = Object(TweetEntitiesAdditionalMediaInfoCallToAction)
+class TwitterEntitiesAdditionalMediaInfoCallToActions(InnerDoc):
+    visit_site = Object(TwitterEntitiesAdditionalMediaInfoCallToAction)
+    watch_now = Object(TwitterEntitiesAdditionalMediaInfoCallToAction)
 
 
-class TweetEntitiesAdditionalMediaInfo(InnerDoc):
+class TwitterEntitiesAdditionalMediaInfo(InnerDoc):
     title = Keyword(doc_values=False, index=False)
     description = Keyword(doc_values=False, index=False)
-    call_to_actions = Object(TweetEntitiesAdditionalMediaInfoCallToActions)
+    call_to_actions = Object(TwitterEntitiesAdditionalMediaInfoCallToActions)
     embeddable = Boolean()
     monetizable = Boolean()
 
 
-class TweetEntitiesMedia(InnerDoc):
+class TwitterEntitiesMedia(InnerDoc):
     id = Long(doc_values=False, index=False)
     id_str = Keyword(doc_values=False, index=False)
     indices = Short(doc_values=False, index=False, multi=True)
@@ -208,24 +208,24 @@ class TweetEntitiesMedia(InnerDoc):
     expanded_url = Keyword(doc_values=False, index=False)
 
     type = Keyword()
-    original_info = Object(TweetEntitiesMediaOriginalInfo)
-    sizes = Object(TweetEntitiesMediaSizes)
+    original_info = Object(TwitterEntitiesMediaOriginalInfo)
+    sizes = Object(TwitterEntitiesMediaSizes)
     source_status_id = Long(doc_values=False, index=False)
     source_status_id_str = Keyword()
     source_user_id = Long(doc_values=False, index=False)
     source_user_id_str = Keyword()
-    video_info = Object(TweetEntitiesMediaVideoInfo)
-    features = Object(TweetEntitiesMediaFeatures)  # {}?
+    video_info = Object(TwitterEntitiesMediaVideoInfo)
+    features = Object(TwitterEntitiesMediaFeatures)  # {}?
 
     media_key = Keyword(doc_values=False, index=False)
-    ext_media_availability = Object(TweetEntitiesMediaExtMediaAvailability)
+    ext_media_availability = Object(TwitterEntitiesMediaExtMediaAvailability)
     ext_alt_text = Keyword(doc_values=False, index=False)
-    ext_media_color = Object(TweetExtensionsMediaColor)
-    ext = Object(TweetExtensions)
-    additional_media_info = Object(TweetEntitiesAdditionalMediaInfo)
+    ext_media_color = Object(TwitterExtensionsMediaColor)
+    ext = Object(TwitterExtensions)
+    additional_media_info = Object(TwitterEntitiesAdditionalMediaInfo)
 
 
-class TweetEntitiesUserMention(InnerDoc):
+class TwitterEntitiesUserMention(InnerDoc):
     id = Long(doc_values=False, index=False)
     id_str = Keyword()
     indices = Short(doc_values=False, index=False, multi=True)
@@ -233,32 +233,32 @@ class TweetEntitiesUserMention(InnerDoc):
     screen_name = Keyword()
 
 
-class TweetEntitiesUrl(InnerDoc):
+class TwitterEntitiesUrl(InnerDoc):
     url = Keyword()
     expanded_url = Keyword()
     display_url = Keyword()
     indices = Short(multi=True)
 
 
-class TweetEntities(InnerDoc):
-    hashtags = Nested(TweetEntitiesIndicesText)
-    symbols = Nested(TweetEntitiesIndicesText)
-    user_mentions = Nested(TweetEntitiesUserMention)
-    urls = Nested(TweetEntitiesUrl)
-    media = Nested(TweetEntitiesMedia)
+class TwitterEntities(InnerDoc):
+    hashtags = Nested(TwitterEntitiesIndicesText)
+    symbols = Nested(TwitterEntitiesIndicesText)
+    user_mentions = Nested(TwitterEntitiesUserMention)
+    urls = Nested(TwitterEntitiesUrl)
+    media = Nested(TwitterEntitiesMedia)
 
 
-# -- TweetOther ------------------------------------------------------------------------
+# -- TwitterOther ---------------------------------------------------------------------
 
 
-class TweetCoordinates(InnerDoc):
-    coordinates = TweetJsonAsStr()
+class TwitterCoordinates(InnerDoc):
+    coordinates = TwitterJsonAsStr()
     type = Keyword()
 
 
-class TweetPlace(InnerDoc):
+class TwitterPlace(InnerDoc):
     attributes = Nested()  # For sample, always [] if it exists.
-    bounding_box = Object(TweetCoordinates)
+    bounding_box = Object(TwitterCoordinates)
     contained_within = Nested()  # For sample, always [] if it exists.
     country = Keyword()
     country_code = Keyword()
@@ -269,38 +269,38 @@ class TweetPlace(InnerDoc):
     url = Keyword(doc_values=False, index=False)
 
 
-class TweetQuotedStatusPermalink(InnerDoc):
+class TwitterQuotedStatusPermalink(InnerDoc):
     url = Keyword(doc_values=False, index=False)
     expanded = Keyword(doc_values=False, index=False)
     display = Keyword(doc_values=False, index=False)
 
 
-class TweetScopes(InnerDoc):
+class TwitterScopes(InnerDoc):
     place_ids = Keyword(multi=True)
 
 
-class TweetSelfThread(InnerDoc):
+class TwitterSelfThread(InnerDoc):
     id = Long(doc_values=False, index=False)
     id_str = Keyword(doc_values=False)
 
 
-class TweetExt(InnerDoc):
-    cameraMoment = Object(TweetExtensionsMediaStats)  # noqa: N815
+class TwitterExt(InnerDoc):
+    cameraMoment = Object(TwitterExtensionsMediaStats)  # noqa: N815
 
 
-# -- TweetUser -------------------------------------------------------------------------
+# -- TwitterUser ----------------------------------------------------------------------
 
 
-class TweetUserEntities(InnerDoc):
-    url = Object(TweetEntities)
-    description = Object(TweetEntities)
+class TwitterUserEntities(InnerDoc):
+    url = Object(TwitterEntities)
+    description = Object(TwitterEntities)
 
 
-class TweetUserExt(InnerDoc):
-    highlightedLabel = Object(TweetExtensionsMediaStats)  # noqa: N815
+class TwitterUserExt(InnerDoc):
+    highlightedLabel = Object(TwitterExtensionsMediaStats)  # noqa: N815
 
 
-class TweetUser(InnerDoc):
+class TwitterUser(InnerDoc):
     id = Long(doc_values=False, index=False)
     id_str = Keyword()
     name = Keyword()
@@ -314,7 +314,7 @@ class TweetUser(InnerDoc):
         term_vector=_INDEX_TERM_VECTOR,
     )
     url = Keyword(doc_values=False)
-    entities = Object(TweetUserEntities)
+    entities = Object(TwitterUserEntities)
 
     protected = Boolean()
     followers_count = Integer()
@@ -342,17 +342,17 @@ class TweetUser(InnerDoc):
     profile_background_image_url = Keyword(doc_values=False, index=False)
     profile_background_image_url_https = Keyword(doc_values=False, index=False)
     profile_background_tile = Boolean()
-    profile_banner_extensions = Object(TweetExtensions)
+    profile_banner_extensions = Object(TwitterExtensions)
     profile_banner_extensions_alt_text = Keyword(doc_values=False, index=False)
     profile_banner_extensions_media_availability = Keyword(
         doc_values=False, index=False
     )
-    profile_banner_extensions_media_color = Object(TweetExtensionsMediaColor)
+    profile_banner_extensions_media_color = Object(TwitterExtensionsMediaColor)
     profile_banner_url = Keyword(doc_values=False, index=False)
-    profile_image_extensions = Object(TweetExtensions)
+    profile_image_extensions = Object(TwitterExtensions)
     profile_image_extensions_alt_text = Keyword(doc_values=False, index=False)
     profile_image_extensions_media_availability = Keyword(doc_values=False, index=False)
-    profile_image_extensions_media_color = Object(TweetExtensionsMediaColor)
+    profile_image_extensions_media_color = Object(TwitterExtensionsMediaColor)
     profile_image_url = Keyword(doc_values=False, index=False)
     profile_image_url_https = Keyword(doc_values=False, index=False)
     profile_link_color = Keyword(doc_values=False, index=False)
@@ -379,7 +379,7 @@ class TweetUser(InnerDoc):
     bocked_by = Boolean()  # For sample, always None.
     want_retweets = Boolean()  # For sample, always None.
     followed_by = Boolean()  # For sample, always None.
-    ext = Object(TweetUserExt)
+    ext = Object(TwitterUserExt)
     is_lifeline_institution = Boolean()
 
     advertiser_account_type = Keyword()
@@ -390,10 +390,10 @@ class TweetUser(InnerDoc):
     require_some_consent = Boolean()
 
 
-# -- Tweet -----------------------------------------------------------------------------
+# -- Twitter ---------------------------------------------------------------------------
 
 
-class Tweet(BaseDocument):
+class TwitterDocument(BaseDocument):
     created_at = Date()
 
     id = Long(doc_values=False, index=False)
@@ -410,8 +410,8 @@ class Tweet(BaseDocument):
     truncated = Boolean()
     display_text_range = Integer(doc_values=False, index=False, multi=True)
 
-    entities = Object(TweetEntities)
-    extended_entities = Object(TweetEntities)
+    entities = Object(TwitterEntities)
+    extended_entities = Object(TwitterEntities)
 
     source = Keyword()
 
@@ -420,15 +420,17 @@ class Tweet(BaseDocument):
     in_reply_to_user_id = Long(doc_values=False, index=False)
     in_reply_to_user_id_str = Keyword()
     in_reply_to_screen_name = Keyword()
-    geo = Object(TweetCoordinates)  # But with coords reversed compared to other attrs?
-    coordinates = Object(TweetCoordinates)
-    place = Object(TweetPlace)
+    geo = Object(
+        TwitterCoordinates
+    )  # But with coords reversed compared to other attrs?
+    coordinates = Object(TwitterCoordinates)
+    place = Object(TwitterPlace)
     contributors = Keyword(multi=True)  # For sample, always None.
     withheld_in_countries = Keyword(multi=True)
     is_quote_status = Boolean()
     quoted_status_id = Long(doc_values=False, index=False)
     quoted_status_id_str = Keyword()
-    quoted_status_permalink = Object(TweetQuotedStatusPermalink)
+    quoted_status_permalink = Object(TwitterQuotedStatusPermalink)
 
     retweet_count = Integer()
     favorite_count = Integer()
@@ -446,15 +448,15 @@ class Tweet(BaseDocument):
     # https://developer.twitter.com/en/docs/tweets/optimize-with-cards/overview/abouts-cards
     # is fairly niche and would add a large complexity and many fields to the mapping.
     # Therefore we represent this as a Keyword in Elasticsearch.
-    card = TweetJsonAsStr(doc_values=False, index=False)
+    card = TwitterJsonAsStr(doc_values=False, index=False)
 
-    scopes = Object(TweetScopes)
+    scopes = Object(TwitterScopes)
     lang = Keyword()
     supplemental_language = Keyword()
-    self_thread = Object(TweetSelfThread)
-    ext = Object(TweetExt)
+    self_thread = Object(TwitterSelfThread)
+    ext = Object(TwitterExt)
 
-    user = Object(TweetUser)
+    user = Object(TwitterUser)
 
     @classmethod
     def index_settings(cls) -> MutableMapping[str, object]:

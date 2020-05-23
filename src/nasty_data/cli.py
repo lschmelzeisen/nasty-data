@@ -35,20 +35,20 @@ from nasty_utils import (
 from overrides import overrides
 
 import nasty_data
-from nasty_data.elasticsearch import ElasticsearchConfig
-from nasty_data.index.index import (
+from nasty_data.elasticsearch.config import ElasticsearchConfig
+from nasty_data.elasticsearch.index import (
     BaseDocument,
     add_dicts_to_index,
     analyze_index,
     new_index,
 )
 from nasty_data.source.nasty_batch_results import (
-    NastyBatchResultsTweet,
+    NastyBatchResultsTwitterDocument,
     load_dict_from_nasty_batch_results,
 )
 from nasty_data.source.pushshift import (
     PushshiftDumpType,
-    PushshiftRedditPost,
+    PushshiftRedditDocument,
     download_pushshift_dumps,
     load_dicts_from_pushshift_dump,
     sample_pushshift_dumps,
@@ -63,8 +63,8 @@ class _IndexType(Enum):
 
     def document_cls(self) -> Type[BaseDocument]:
         return {
-            _IndexType.TWITTER: NastyBatchResultsTweet,
-            _IndexType.REDDIT: PushshiftRedditPost,
+            _IndexType.TWITTER: NastyBatchResultsTwitterDocument,
+            _IndexType.REDDIT: PushshiftRedditDocument,
         }[self]
 
     def load_dicts(self, file: Path) -> Iterator[Mapping[str, object]]:
@@ -310,6 +310,9 @@ class NastyDataProgram(Program[ElasticsearchConfig]):
                     _AnalyzeIndexCommand,
                     _PushshiftCommand,
                 ],
-                _PushshiftCommand: [_DownloadPushshiftCommand, _SamplePushshiftCommand],
+                _PushshiftCommand: [
+                    _DownloadPushshiftCommand,
+                    _SamplePushshiftCommand,
+                ],
             },
         )

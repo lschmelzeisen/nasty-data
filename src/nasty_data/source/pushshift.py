@@ -39,7 +39,7 @@ from nasty_utils import (
 )
 from typing_extensions import Final
 
-from nasty_data.index.reddit import RedditPost
+from nasty_data.document.reddit import RedditDocument
 
 _LOGGER: Final[Logger] = getLogger(__name__)
 
@@ -261,5 +261,5 @@ class PushshiftDumpMeta(InnerDoc):
     dump_date = Date()
 
 
-class PushshiftRedditPost(RedditPost):
+class PushshiftRedditDocument(RedditDocument):
     pushshift_dump_meta = Object(PushshiftDumpMeta)

@@ -24,7 +24,7 @@ from elasticsearch_dsl import Date, InnerDoc, Integer, Keyword, Object
 from nasty_utils import DecompressingTextIOWrapper
 from typing_extensions import Final
 
-from nasty_data.index.twitter import Tweet
+from nasty_data.document.twitter import TwitterDocument
 
 _LOGGER: Final[Logger] = getLogger(__name__)
 
@@ -73,5 +73,5 @@ class NastyBatchMeta(InnerDoc):
     completed_at = Date()
 
 
-class NastyBatchResultsTweet(Tweet):
+class NastyBatchResultsTwitterDocument(TwitterDocument):
     nasty_batch_meta = Object(NastyBatchMeta)
