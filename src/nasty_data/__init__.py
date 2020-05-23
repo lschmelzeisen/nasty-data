@@ -16,10 +16,11 @@
 
 import logging
 
+__version__ = "dev"
 try:
     from nasty_data._version import __version__  # type: ignore
 except ImportError:
-    __version__ = "dev"
+    pass
 
 __version_info__ = tuple(
     (int(part) if part.isdigit() else part)

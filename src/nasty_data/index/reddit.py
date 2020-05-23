@@ -14,28 +14,19 @@
 # limitations under the License.
 #
 
-import json
 from datetime import date, datetime
-from json import JSONDecodeError
-from logging import Logger, getLogger
-from pathlib import Path
-from typing import Any, Iterator, Mapping, Type, TypeVar, Union, cast
+from typing import Any, Mapping, MutableMapping, Union, cast
 
-import elasticsearch_dsl
-from elasticsearch import Elasticsearch
 from elasticsearch_dsl import (
     Boolean,
     Date,
-    Document,
     Float,
-    Index,
     InnerDoc,
     Integer,
     Keyword,
     Long,
     Nested,
     Object,
-    Search,
     Short,
     Text,
     analyzer,
@@ -43,9 +34,11 @@ from elasticsearch_dsl import (
     token_filter,
     tokenizer,
 )
-from nasty_utils.io_ import DecompressingTextIOWrapper
+from nasty_utils import checked_cast
 from overrides import overrides
 from typing_extensions import Final
+
+from nasty_data.index.index import BaseDocument
 
 # This file contains the elasticsearch-dsl mapping for reading and writing Reddit posts
 # (specifically from the Pushshift dumps).
@@ -99,20 +92,16 @@ from typing_extensions import Final
 #   index_options='offsets' and don't enable 'index_phrases' (see experiment below).
 #   Additionally, we store term vectors for the most important
 #   Text-fields, but not for every Text field because they need considerable space.
-# - I also breifly experimented with disabling _source and enabling "store", but this
+# - I also briefly experimented with disabling _source and enabling "store", but this
 #   did not yield a very noticeable change in index size but severely reduces stuff we
 #   can do with the data.
 
 # TODO: Data reading has not been implemented yet. Do so! Take old code as reference:
 #   https://github.com/lschmelzeisen/opamin/blob/03b35d4005fc1642662e69672de4cd2d4ca4660e/opamin/data/reddit.py
 
-_LOGGER: Final[Logger] = getLogger(__name__)
-
-REDDIT_INDEX = Index("opamin-reddit")
-
 _INDEX_OPTIONS: Final[str] = "offsets"
 _INDEX_PHRASES: Final[bool] = False
-_INDEX_TERM_VECTOR: Final[str] = "no"
+_INDEX_TERM_VECTOR: Final[str] = "yes"
 
 _STANDARD_ANALYZER = analyzer(
     "standard_uax_url_email",
@@ -371,39 +360,7 @@ class RedditLinkOutboundLink(InnerDoc):
     url = Keyword(doc_values=False, index=False)
 
 
-_T_RedditPost = TypeVar("_T_RedditPost", bound="RedditPost")
-
-
-class RedditPost(Document):
-    """Base class for all Reddit post (both links and comments).
-
-    Both links and comments are kept together in a single Elasticsearch index,
-    although only a small number of fields is shared between both types. This was done
-    out of gut instinct to make it easy to search both types with a single query.
-    Some thorough experimentation on whether two indices improve storage or search
-    performance might be interesting.
-
-    The Elasticsearch join datatype is not used to link comments to links.
-    This was done so that we can add comments to the index even if the corresponding
-    links has not been added (yet).
-    """
-
-    # For some fields in the Reddit JSONs I could not figure out what they mean and what
-    # values they take. Some fields even always had the same value (as annotated in the
-    # following). However, this was only observed over a small sample of ~90000 posts
-    # (spanning the time from 2005 to 2019).
-
-    class Index:
-        name = REDDIT_INDEX._name
-        settings = {
-            "number_of_shards": 1,
-            "number_of_replicas": 0,
-            "codec": "best_compression",
-        }
-        analyzers = [_STANDARD_ANALYZER, _ENGLISH_ANALYZER]
-
-    type_ = Keyword(required=True)
-
+class RedditBaseDocument(BaseDocument):
     id = Keyword(doc_values=False, index=False)
     name = Keyword(doc_values=False, index=False)
     permalink = Keyword(doc_values=False, index=False)
@@ -484,88 +441,26 @@ class RedditPost(Document):
     removal_reason = Keyword()
     send_replies = Boolean()
 
-    def __init__(self, *args: object, **kwargs: object):
-        if type(self) == RedditPost:
-            raise TypeError(
-                "Do not instantiate RedditPost directly. Use one of its subclasses:"
-                + ", ".join(subcls.__name__ for subcls in type(self).__subclasses__())
-            )
-        super().__init__(type_=self.__class__.__name__, *args, **kwargs)
-
     @classmethod
-    def from_dict(cls, post_dict: Mapping[str, object]) -> "RedditPost":
-        # We do want to modify the caller's dict. Because we don't modify subdicts a
-        # shallow copy is enough here.
-        post_dict = dict(post_dict)
+    @overrides
+    def prepare_doc_dict(
+        cls, doc_dict: MutableMapping[str, object]
+    ) -> MutableMapping[str, object]:
+        result = super().prepare_doc_dict(doc_dict)
 
         # "media_metadata" contains a mapping of arbitrary IDs to some objects. Such a
         # mapping would result in each ID being added as its own field in Elasticsearch.
         # Therefore we convert this to a list of the same objects. The objects already
-        # contain a field witht he same ID.
-        if post_dict.get("media_metadata"):
-            post_dict["media_metadata"] = list(
-                cast(Mapping[str, object], post_dict["media_metadata"]).values()
+        # contain a field with the respective ID.
+        if result.get("media_metadata"):
+            result["media_metadata"] = list(
+                cast(Mapping[str, object], result["media_metadata"]).values()
             )
 
-        # "crosspost_parent_list" contains the whole JSON dict of the post this post
-        # is cross-posting somewhere. For simplicity of the data model we discard this
-        # here, at the cost of a single ID-lookup to the index should it be needed
-        # later.
-        post_dict.pop("crosspost_parent_list", None)
-
-        post_cls: Type[RedditPost]
-        _id = post_dict["id"]
-        assert isinstance(_id, str) and _id
-        if "title" in post_dict:
-            post_cls = RedditLink
-            post_dict["_id"] = "t1_" + _id
-        elif "body" in post_dict:
-            post_cls = RedditComment
-            post_dict["_id"] = "t3_" + _id
-        else:
-            raise ValueError(
-                "Could not determine whether given post is link or comment."
-            )
-
-        return post_cls(**post_dict)
-
-    @classmethod
-    @overrides
-    def _matches(cls, hit: Mapping[str, object]) -> bool:
-        """Checks if a search hit can be converted to this class or a subclass."""
-        if not cast(str, hit["_index"]).startswith(REDDIT_INDEX._name):
-            return False
-        elif cls == RedditPost:
-            return True
-        return cast(Mapping[str, object], hit["_source"])["type_"] == cls.__name__
-
-    @classmethod
-    @overrides
-    def from_es(cls, hit: Mapping[str, object]) -> "RedditPost":
-        """Convert a search hit to the corresponding (sub)class."""
-        if cls == RedditPost:
-            source = cast(Mapping[str, object], hit["_source"])
-            type_ = cast(str, source["type_"])
-            subcls = {subcls.__name__: subcls for subcls in cls.__subclasses__()}[type_]
-            return subcls.from_es(hit)
-        return super().from_es(hit)
-
-    @classmethod
-    @overrides
-    def search(
-        cls: Type[_T_RedditPost],
-        using: Union[None, str, Elasticsearch] = None,
-        index: Union[None, str, elasticsearch_dsl.Index] = None,
-    ) -> Search[_T_RedditPost]:
-        """Only return hits convertible to the respective subclass in search queries."""
-        if cls == RedditPost:
-            return super().search(using=using, index=index)
-        return (
-            super().search(using=using, index=index).filter("term", type_=cls.__name__)
-        )
+        return result
 
 
-class RedditLink(RedditPost):
+class RedditLink(RedditBaseDocument):
     domain = Keyword()
     url = Keyword()
 
@@ -687,8 +582,24 @@ class RedditLink(RedditPost):
     from_id = Keyword()  # For sample, always None if it exists.
     from_kind = Keyword()  # For sample, always None if it exists.
 
+    @classmethod
+    @overrides
+    def prepare_doc_dict(
+        cls, doc_dict: MutableMapping[str, object]
+    ) -> MutableMapping[str, object]:
+        result = super().prepare_doc_dict(doc_dict)
+        result["_id"] = "t1_" + checked_cast(str, result["id"])
 
-class RedditComment(RedditPost):
+        # "crosspost_parent_list" contains the whole JSON dict of the post this post
+        # is cross-posting somewhere. For simplicity of the data model we discard this
+        # here, at the cost of a single ID-lookup to the index should it be needed
+        # later.
+        result.pop("crosspost_parent_list", None)
+
+        return result
+
+
+class RedditComment(RedditBaseDocument):
     link_id = Keyword()
     parent_id = Keyword()
     permalink_url = Keyword(doc_values=False, index=False)
@@ -712,18 +623,26 @@ class RedditComment(RedditPost):
 
     replies = Keyword()  # For sample, always '' if it exists.
 
+    @classmethod
+    @overrides
+    def prepare_doc_dict(
+        cls, doc_dict: MutableMapping[str, object]
+    ) -> MutableMapping[str, object]:
+        result = super().prepare_doc_dict(doc_dict)
+        result["_id"] = "t3_" + checked_cast(str, result["id"])
+        return result
 
-def load_reddit_dicts_from_dump(file: Path) -> Iterator[Mapping[str, object]]:
-    with DecompressingTextIOWrapper(file, encoding="UTF-8", progress_bar=True) as fin:
-        for line_no, line in enumerate(fin):
-            # For some reason, there is at least one line (specifically,
-            # line 29876 in file RS_2011-01.bz2) that contains NUL
-            # characters at the beginning of it, which we remove with
-            # the following.
-            line = line.lstrip("\0")
 
-            try:
-                yield json.loads(line)
-            except JSONDecodeError:
-                _LOGGER.error(f"Error in line {line_no} of file '{file}'.")
-                raise
+class RedditPost(RedditLink, RedditComment):
+    @classmethod
+    @overrides
+    def prepare_doc_dict(
+        cls, doc_dict: MutableMapping[str, object]
+    ) -> MutableMapping[str, object]:
+        if "title" in doc_dict and "body" in doc_dict:
+            raise ValueError("Given post appears to be both link and comment.")
+        elif "title" in doc_dict:
+            return super(RedditLink, cls).prepare_doc_dict(doc_dict)
+        elif "body" in doc_dict:
+            return super(RedditComment, cls).prepare_doc_dict(doc_dict)
+        raise ValueError("Could not determine whether given post is link or comment.")

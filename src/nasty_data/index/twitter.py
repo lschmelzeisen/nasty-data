@@ -15,17 +15,12 @@
 #
 
 import json
-from json import JSONDecodeError
-from logging import Logger, getLogger
-from pathlib import Path
-from typing import Dict, Iterator, Mapping, Sequence, cast
+from typing import Dict, Mapping, MutableMapping, Optional, Sequence, cast
 
 from elasticsearch_dsl import (
     Boolean,
     Date,
-    Document,
     Float,
-    Index,
     InnerDoc,
     Integer,
     Keyword,
@@ -39,9 +34,10 @@ from elasticsearch_dsl import (
     token_filter,
     tokenizer,
 )
-from nasty_utils.io_ import DecompressingTextIOWrapper
 from overrides import overrides
 from typing_extensions import Final
+
+from nasty_data.index.index import BaseDocument
 
 # Tweet objects are fairly well documented, see the following and its subpages:
 # https://developer.twitter.com/en/docs/tweets/data-dictionary/overview/
@@ -57,13 +53,9 @@ from typing_extensions import Final
 
 # TODO: doc id_str over id
 
-_LOGGER: Final[Logger] = getLogger(__name__)
-
-TWITTER_INDEX = Index("opamin-twitter")
-
 _INDEX_OPTIONS: Final[str] = "offsets"
 _INDEX_PHRASES: Final[bool] = False
-_INDEX_TERM_VECTOR: Final[str] = "no"
+_INDEX_TERM_VECTOR: Final[str] = "yes"
 
 _STANDARD_ANALYZER = analyzer(
     "standard_uax_url_email",
@@ -401,18 +393,7 @@ class TweetUser(InnerDoc):
 # -- Tweet -----------------------------------------------------------------------------
 
 
-class Tweet(Document):
-    class Index:
-        name = TWITTER_INDEX._name
-        settings = {
-            "number_of_shards": 1,
-            "number_of_replicas": 0,
-            "codec": "best_compression",
-            # "index.mapping.total_fields.limit": 10000,
-            "index.mapping.nested_fields.limit": 100,
-        }
-        analyzer = [_STANDARD_ANALYZER, _ENGLISH_ANALYZER]
-
+class Tweet(BaseDocument):
     created_at = Date()
 
     id = Long(doc_values=False, index=False)
@@ -464,7 +445,7 @@ class Tweet(Document):
     # The Twitter card feature, i.e.,
     # https://developer.twitter.com/en/docs/tweets/optimize-with-cards/overview/abouts-cards
     # is fairly niche and would add a large complexity and many fields to the mapping.
-    # Therefore we represent this as a Keyword in ElasticSearch.
+    # Therefore we represent this as a Keyword in Elasticsearch.
     card = TweetJsonAsStr(doc_values=False, index=False)
 
     scopes = Object(TweetScopes)
@@ -476,35 +457,28 @@ class Tweet(Document):
     user = Object(TweetUser)
 
     @classmethod
-    def from_dict(cls, tweet_dict: Mapping[str, object]) -> "Tweet":
-        tweet_dict = dict(tweet_dict)
-        tweet_dict["_id"] = tweet_dict["id_str"]
+    def index_settings(cls) -> MutableMapping[str, object]:
+        settings = super().index_settings()
+        settings["index.mapping.nested_fields.limit"] = 100
+        return settings
+
+    @classmethod
+    @overrides
+    def prepare_doc_dict(
+        cls, doc_dict: MutableMapping[str, object]
+    ) -> MutableMapping[str, object]:
+        result = super().prepare_doc_dict(doc_dict)
+
+        result["_id"] = result["id_str"]
 
         # TODO: document this
         extended_entities = cast(
-            Mapping[str, Sequence[Mapping[str, Dict[str, object]]]],
-            tweet_dict.get("extended_entities"),
+            Optional[Mapping[str, Sequence[Mapping[str, Dict[str, object]]]]],
+            result.get("extended_entities"),
         )
         for media in (extended_entities or {}).get("media", []):
             additional_media_info = media.get("additional_media_info")
             if additional_media_info:
-                additional_media_info.pop("source_user", None)  # TODO: changes param.
+                additional_media_info.pop("source_user", None)
 
-        return cls(**tweet_dict)
-
-    @classmethod
-    @overrides
-    def _matches(cls, hit: Mapping[str, object]) -> bool:
-        if not cast(str, hit["_index"]).startswith(TWITTER_INDEX._name):
-            return False
-        return True
-
-
-def load_tweet_dicts_from_dump(file: Path) -> Iterator[Mapping[str, object]]:
-    with DecompressingTextIOWrapper(file, encoding="UTF-8", progress_bar=True) as fin:
-        for line_no, line in enumerate(fin):
-            try:
-                yield json.loads(line)
-            except JSONDecodeError:
-                _LOGGER.error(f"Error in line {line_no} of file '{file}'.")
-                raise
+        return result

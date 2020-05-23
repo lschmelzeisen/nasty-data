@@ -14,6 +14,14 @@
 # limitations under the License.
 #
 
-from nasty_data.cli.main import main
+from sys import argv
 
-main()
+from nasty_data.cli import NastyDataProgram
+
+
+def main() -> None:
+    NastyDataProgram(*argv[1:])
+
+
+if __name__ == "__main__":
+    main()
