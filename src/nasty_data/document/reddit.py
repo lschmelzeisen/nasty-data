@@ -38,7 +38,7 @@ from nasty_utils import checked_cast
 from overrides import overrides
 from typing_extensions import Final
 
-from nasty_data.elasticsearch.index import BaseDocument
+from nasty_data.elasticsearch_.index import BaseDocument
 
 # This file contains the elasticsearch-dsl mapping for reading and writing Reddit posts
 # (specifically from the Pushshift dumps).

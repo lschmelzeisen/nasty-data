@@ -35,8 +35,8 @@ from nasty_utils import (
 from overrides import overrides
 
 import nasty_data
-from nasty_data.elasticsearch.config import ElasticsearchConfig
-from nasty_data.elasticsearch.index import (
+from nasty_data.elasticsearch_.config import ElasticsearchConfig
+from nasty_data.elasticsearch_.index import (
     BaseDocument,
     add_dicts_to_index,
     analyze_index,

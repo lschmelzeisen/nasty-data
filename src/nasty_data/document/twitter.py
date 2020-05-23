@@ -37,7 +37,7 @@ from elasticsearch_dsl import (
 from overrides import overrides
 from typing_extensions import Final
 
-from nasty_data.elasticsearch.index import BaseDocument
+from nasty_data.elasticsearch_.index import BaseDocument
 
 # Tweet objects are fairly well documented, see the following and its subpages:
 # https://developer.twitter.com/en/docs/Twitters/data-dictionary/overview/
