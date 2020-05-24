@@ -43,7 +43,9 @@ class BaseDocument(Document):
         cls: Type[_T_BaseDocument], doc_dict: Mapping[str, object]
     ) -> _T_BaseDocument:
         return cls(
-            cls.prepare_doc_dict(cast(MutableMapping[str, object], deepcopy(doc_dict)))
+            **cls.prepare_doc_dict(
+                cast(MutableMapping[str, object], deepcopy(doc_dict))
+            )
         )
 
     @classmethod
