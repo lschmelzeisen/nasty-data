@@ -55,7 +55,7 @@ from nasty_data.elasticsearch_.index import BaseDocument
 
 _INDEX_OPTIONS: Final[str] = "offsets"
 _INDEX_PHRASES: Final[bool] = False
-_INDEX_TERM_VECTOR: Final[str] = "yes"
+_INDEX_TERM_VECTOR: Final[str] = "with_positions_offsets"
 
 _STANDARD_ANALYZER = analyzer(
     "standard_uax_url_email",
