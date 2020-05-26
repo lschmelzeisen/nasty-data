@@ -23,7 +23,7 @@ from itertools import chain
 from json import JSONDecodeError
 from logging import Logger, getLogger
 from pathlib import Path
-from typing import Counter, Iterator, Mapping, Optional
+from typing import Counter, Iterator, Mapping, Optional, Tuple
 
 import requests
 from elasticsearch_dsl import Date, InnerDoc, Keyword, Object
@@ -214,45 +214,16 @@ def _sample_pushshift_dump(dump_file: Path) -> Path:
 
     sample_file_tmp = sample_file.with_name(sample_file.name + ".tmp")
     with sample_file_tmp.open("w", encoding="UTF-8") as fout:
-        for post in load_dicts_from_pushshift_dump(dump_file):
-            keys.update(post.keys())
-            if all(keys[key] > 100 for key in post.keys()):
+        for document in load_documents_from_pushshift_dump(dump_file):
+            document_dict = document.to_dict(include_meta=False)
+            keys.update(document_dict.keys())
+            if all(keys[key] > 100 for key in document_dict.keys()):
                 continue
 
-            fout.write(json.dumps(post) + "\n")
+            fout.write(json.dumps(document) + "\n")
 
     sample_file_tmp.rename(sample_file)
     return sample_file
-
-
-def load_dicts_from_pushshift_dump(dump_file: Path) -> Iterator[Mapping[str, object]]:
-    with DecompressingTextIOWrapper(
-        dump_file, encoding="UTF-8", progress_bar=True
-    ) as fin:
-        for line_no, line in enumerate(fin):
-            # For some reason, there is at least one line (specifically, line 29876 in
-            # file RS_2011-01.bz2) that contains NUL characters at the beginning of it,
-            # which we remove with the following.
-            line = line.lstrip("\0")
-
-            try:
-                result = json.loads(line)
-            except JSONDecodeError:
-                _LOGGER.error(f"Error in line {line_no} of file '{dump_file}'.")
-                raise
-
-            for dump_type, file_pattern in (
-                (t, p) for t, ps in _PUSHSHIFT_FILE_PATTERNS.items() for p in ps
-            ):
-                m = re.match(file_pattern, dump_file.name)
-                if m:
-                    result["pushshift_dump_meta"] = {
-                        "dump_file": dump_file.name,
-                        "dump_type": dump_type.name,
-                        "dump_date": format_yyyy_mm_dd(parse_yyyy_mm(m.group(1))),
-                    }
-                    break
-            yield result
 
 
 class PushshiftDumpMeta(InnerDoc):
@@ -263,3 +234,42 @@ class PushshiftDumpMeta(InnerDoc):
 
 class PushshiftRedditDocument(RedditDocument):
     pushshift_dump_meta = Object(PushshiftDumpMeta)
+
+    @classmethod
+    def meta_field(cls) -> Tuple[str, str]:
+        return "pushshift_dump_meta", "dump_file"
+
+
+def load_documents_from_pushshift_dump(
+    dump_file: Path,
+) -> Iterator[PushshiftRedditDocument]:
+    pushshift_dump_meta: Optional[Mapping[str, object]] = None
+    for dump_type, file_pattern in (
+        (t, p) for t, ps in _PUSHSHIFT_FILE_PATTERNS.items() for p in ps
+    ):
+        m = re.match(file_pattern, dump_file.name)
+        if m:
+            pushshift_dump_meta = {
+                "dump_file": dump_file.name,
+                "dump_type": dump_type.name,
+                "dump_date": format_yyyy_mm_dd(parse_yyyy_mm(m.group(1))),
+            }
+            break
+
+    with DecompressingTextIOWrapper(
+        dump_file, encoding="UTF-8", progress_bar=True
+    ) as fin:
+        for line_no, line in enumerate(fin):
+            # For some reason, there is at least one line (specifically, line 29876 in
+            # file RS_2011-01.bz2) that contains NUL characters at the beginning of it,
+            # which we remove with the following.
+            line = line.lstrip("\0")
+
+            try:
+                document_dict = json.loads(line)
+            except JSONDecodeError:
+                _LOGGER.error(f"Error in line {line_no} of file '{dump_file}'.")
+                raise
+
+            document_dict["pushshift_dump_meta"] = pushshift_dump_meta
+            yield PushshiftRedditDocument.from_dict(document_dict)

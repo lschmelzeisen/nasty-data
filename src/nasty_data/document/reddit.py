@@ -365,7 +365,9 @@ class RedditBaseDocument(BaseDocument):
     name = Keyword(doc_values=False, index=False)
     permalink = Keyword(doc_values=False, index=False)
 
-    created = RedditDate(doc_values=False, index=False)
+    # Would like to set doc_values=False on `created` but the following Kibana bug
+    # prevents this: https://github.com/elastic/kibana/issues/11179
+    created = RedditDate(index=False)
     created_utc = RedditDate()
     edited = RedditDate()
     retrieved_on = RedditDate()
@@ -642,7 +644,7 @@ class RedditDocument(RedditLink, RedditComment):
         if "title" in doc_dict and "body" in doc_dict:
             raise ValueError("Given post appears to be both link and comment.")
         elif "title" in doc_dict:
-            return super(RedditLink, cls).prepare_doc_dict(doc_dict)
+            return RedditLink.prepare_doc_dict(doc_dict)
         elif "body" in doc_dict:
-            return super(RedditComment, cls).prepare_doc_dict(doc_dict)
+            return RedditComment.prepare_doc_dict(doc_dict)
         raise ValueError("Could not determine whether given post is link or comment.")

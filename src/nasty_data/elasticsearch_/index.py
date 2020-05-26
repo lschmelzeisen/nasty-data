@@ -17,14 +17,23 @@ import json
 from copy import deepcopy
 from datetime import datetime
 from logging import Logger, getLogger
-from typing import Iterator, Mapping, MutableMapping, Type, TypeVar, cast
+from typing import (
+    Iterator,
+    Mapping,
+    MutableMapping,
+    Optional,
+    Tuple,
+    Type,
+    TypeVar,
+    cast,
+)
 
+from elasticsearch.exceptions import ElasticsearchException
 from elasticsearch.helpers import bulk
 from elasticsearch_dsl import Document, Index, connections
 from typing_extensions import Final
 
 _LOGGER: Final[Logger] = getLogger(__name__)
-
 
 _T_BaseDocument = TypeVar("_T_BaseDocument", bound="BaseDocument")
 
@@ -53,6 +62,10 @@ class BaseDocument(Document):
         cls, doc_dict: MutableMapping[str, object]
     ) -> MutableMapping[str, object]:
         return doc_dict
+
+    @classmethod
+    def meta_field(cls) -> Optional[Tuple[str, str]]:
+        return None
 
 
 def new_index(
@@ -118,38 +131,77 @@ def ensure_index_exists(index_name: str) -> None:
         raise Exception(f"Elasticsearch index '{index_name}' does not exist.")
 
 
-def add_dicts_to_index(
-    index_name: str,
-    document_cls: Type[_T_BaseDocument],
-    dicts: Iterator[Mapping[str, object]],
-) -> None:
-    def make_elasticsearch_document_dicts() -> Iterator[Mapping[str, object]]:
-        for dict_ in dicts:
-            document = document_cls.from_dict(dict_)
+def add_documents_to_index(index_name: str, documents: Iterator[BaseDocument]) -> None:
+    _LOGGER.debug(f"Indexing documents to index '{index_name}'.")
 
-            # Deserialize data and then serialize again. Needed so that our Python
-            # conversion of some data types arrives in the JSON send to ElasticSearch.
-            document.full_clean()
+    def make_upsert_op(document: BaseDocument) -> Mapping[str, object]:
+        # Deserialize data and then serialize again. Needed so that our Python
+        # conversion of some data types arrives in the JSON send to ElasticSearch.
+        document.full_clean()
 
-            document_dict = dict(document.to_dict(include_meta=True))
-            document_dict["_index"] = index_name
-            yield document_dict
+        document_dict = document.to_dict(include_meta=False)
+        meta_field, meta_field_id = document.meta_field() or (None, None)
+        meta_field_data = document_dict.get(meta_field) if meta_field else None
 
-    _LOGGER.debug(f"Indexing documents of type {document_cls} to index '{index_name}'.")
+        result: MutableMapping[str, object] = {
+            "_id": document.meta.id,
+            "_index": index_name,
+            "_op_type": "update",
+        }
+        if not (meta_field and meta_field_id and meta_field_data):
+            result["doc_as_upsert"] = True
+            result["doc"] = document_dict
+        else:
+            result["upsert"] = document_dict
+            result["script"] = {
+                "lang": "painless",
+                "source": """
+                    if (ctx._source.{meta_field} == null) {{
+                        ctx._source.{meta_field} = params.meta_field;
+                    }} else if (ctx._source.{meta_field} instanceof List) {{
+                        boolean found = false;
+                        for (meta_field in ctx._source.{meta_field}) {{
+                            if (
+                                meta_field.{meta_field_id}
+                                == params.meta_field.{meta_field_id}
+                            ) {{
+                                found = true;
+                                break;
+                            }}
+                        }}
+                        if (!found) {{
+                            ctx._source.{meta_field}.add(params.meta_field);
+                        }}
+                    }} else {{
+                        if (
+                            ctx._source.{meta_field}.{meta_field_id}
+                            != params.meta_field.{meta_field_id}
+                        ) {{
+                            ctx._source.{meta_field} = [
+                                ctx._source.{meta_field}, params.meta_field
+                            ];
+                        }}
+                    }}
+                """.format(
+                    meta_field=meta_field, meta_field_id=meta_field_id
+                ),
+                "params": {"meta_field": meta_field_data},
+            }
+        return result
 
-    _num_success, num_failed = bulk(
+    num_success, num_failed = bulk(
         connections.get_connection(),
-        make_elasticsearch_document_dicts(),
+        map(make_upsert_op, documents),
         stats_only=True,
-        raise_on_error=True,
-        raise_on_exception=True,
         max_retries=5,
     )
 
     if num_failed:
-        _LOGGER.error("Indexing failed.")
-    else:
-        _LOGGER.debug("Indexing successful.")
+        raise ElasticsearchException(
+            f"Failed to indexed {num_failed} documents ({num_success} succeeded)."
+        )
+
+    _LOGGER.debug(f"Succesfully indexed {num_success} documents.")
 
 
 def analyze_index(index_name: str, document_cls: Type[_T_BaseDocument]) -> None:

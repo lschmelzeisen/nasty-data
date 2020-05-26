@@ -79,7 +79,7 @@ from nasty_data.document.twitter import (
 from nasty_data.elasticsearch_.config import ElasticsearchConfig
 from nasty_data.elasticsearch_.index import (
     BaseDocument,
-    add_dicts_to_index,
+    add_documents_to_index,
     analyze_index,
     ensure_index_exists,
     new_index,
@@ -88,14 +88,14 @@ from nasty_data.source.nasty_batch_results import (
     NastyBatchMeta,
     NastyBatchResultsTwitterDocument,
     NastyRequestMeta,
-    load_dict_from_nasty_batch_results,
+    load_documents_from_nasty_batch_results,
 )
 from nasty_data.source.pushshift import (
     PushshiftDumpMeta,
     PushshiftDumpType,
     PushshiftRedditDocument,
     download_pushshift_dumps,
-    load_dicts_from_pushshift_dump,
+    load_documents_from_pushshift_dump,
     sample_pushshift_dumps,
 )
 
@@ -158,19 +158,19 @@ __all__ = [
     "TwitterUserExt",
     "ElasticsearchConfig",
     "BaseDocument",
-    "add_dicts_to_index",
+    "add_documents_to_index",
     "analyze_index",
     "ensure_index_exists",
     "new_index",
     "NastyBatchMeta",
     "NastyBatchResultsTwitterDocument",
     "NastyRequestMeta",
-    "load_dict_from_nasty_batch_results",
+    "load_documents_from_nasty_batch_results",
     "PushshiftDumpMeta",
     "PushshiftDumpType",
     "PushshiftRedditDocument",
     "download_pushshift_dumps",
-    "load_dicts_from_pushshift_dump",
+    "load_documents_from_pushshift_dump",
     "sample_pushshift_dumps",
 ]
 

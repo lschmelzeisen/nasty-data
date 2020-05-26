@@ -19,7 +19,7 @@ from datetime import date
 from enum import Enum
 from functools import partial
 from pathlib import Path
-from typing import Iterator, Mapping, Optional, Type, TypeVar
+from typing import Callable, Iterator, Optional, Type, TypeVar, cast
 
 from nasty_utils import (
     Argument,
@@ -38,19 +38,19 @@ import nasty_data
 from nasty_data.elasticsearch_.config import ElasticsearchConfig
 from nasty_data.elasticsearch_.index import (
     BaseDocument,
-    add_dicts_to_index,
+    add_documents_to_index,
     analyze_index,
     new_index,
 )
 from nasty_data.source.nasty_batch_results import (
     NastyBatchResultsTwitterDocument,
-    load_dict_from_nasty_batch_results,
+    load_documents_from_nasty_batch_results,
 )
 from nasty_data.source.pushshift import (
     PushshiftDumpType,
     PushshiftRedditDocument,
     download_pushshift_dumps,
-    load_dicts_from_pushshift_dump,
+    load_documents_from_pushshift_dump,
     sample_pushshift_dumps,
 )
 
@@ -67,11 +67,14 @@ class _IndexType(Enum):
             _IndexType.REDDIT: PushshiftRedditDocument,
         }[self]
 
-    def load_dicts(self, file: Path) -> Iterator[Mapping[str, object]]:
-        yield from {
-            _IndexType.TWITTER: load_dict_from_nasty_batch_results,
-            _IndexType.REDDIT: load_dicts_from_pushshift_dump,
-        }[self](file)
+    def load_documents(self, file: Path) -> Iterator[BaseDocument]:
+        yield from cast(
+            Callable[[Path], Iterator[BaseDocument]],
+            {
+                _IndexType.TWITTER: load_documents_from_nasty_batch_results,
+                _IndexType.REDDIT: load_documents_from_pushshift_dump,
+            }[self],
+        )(file)
 
 
 _INDEX_TYPE_ARGUMENT = Argument(
@@ -162,10 +165,8 @@ class _IndexDumpCommand(Command[ElasticsearchConfig]):
     @overrides
     def run(self) -> None:
         self.config.setup_elasticsearch_connection()
-        add_dicts_to_index(
-            self.index_name,
-            self.index_type.document_cls(),
-            self.index_type.load_dicts(self.file),
+        add_documents_to_index(
+            self.index_name, self.index_type.load_documents(self.file),
         )
 
 

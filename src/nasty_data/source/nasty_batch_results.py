@@ -18,41 +18,15 @@ import json
 from json import JSONDecodeError
 from logging import Logger, getLogger
 from pathlib import Path
-from typing import Iterator, Mapping, Optional
+from typing import Iterator, Mapping, Optional, Tuple
 
-from elasticsearch_dsl import Date, InnerDoc, Integer, Keyword, Object
+from elasticsearch_dsl import Date, InnerDoc, Integer, Keyword, Nested, Object
 from nasty_utils import DecompressingTextIOWrapper
 from typing_extensions import Final
 
 from nasty_data.document.twitter import TwitterDocument
 
 _LOGGER: Final[Logger] = getLogger(__name__)
-
-
-def load_dict_from_nasty_batch_results(
-    data_file: Path,
-) -> Iterator[Mapping[str, object]]:
-    meta_file = data_file.with_name(
-        data_file.name[: -len(".data.jsonl.xz")] + ".meta.json"
-    )
-
-    nasty_batch_meta: Optional[Mapping[str, object]] = None
-    if meta_file.exists():
-        with meta_file.open(encoding="UTF-8") as fin:
-            nasty_batch_meta = json.load(fin)
-
-    with DecompressingTextIOWrapper(
-        data_file, encoding="UTF-8", progress_bar=True
-    ) as fin:
-        for line_no, line in enumerate(fin):
-            try:
-                result = json.loads(line)
-            except JSONDecodeError:
-                _LOGGER.error(f"Error in line {line_no} of file '{data_file}'.")
-                raise
-
-            result["nasty_batch_meta"] = nasty_batch_meta
-            yield result
 
 
 class NastyRequestMeta(InnerDoc):
@@ -74,4 +48,34 @@ class NastyBatchMeta(InnerDoc):
 
 
 class NastyBatchResultsTwitterDocument(TwitterDocument):
-    nasty_batch_meta = Object(NastyBatchMeta)
+    nasty_batch_meta = Nested(NastyBatchMeta)
+
+    @classmethod
+    def meta_field(cls) -> Tuple[str, str]:
+        return "nasty_batch_meta", "id"
+
+
+def load_documents_from_nasty_batch_results(
+    data_file: Path,
+) -> Iterator[NastyBatchResultsTwitterDocument]:
+    meta_file = data_file.with_name(
+        data_file.name[: -len(".data.jsonl.xz")] + ".meta.json"
+    )
+
+    nasty_batch_meta: Optional[Mapping[str, object]] = None
+    if meta_file.exists():
+        with meta_file.open(encoding="UTF-8") as fin:
+            nasty_batch_meta = json.load(fin)
+
+    with DecompressingTextIOWrapper(
+        data_file, encoding="UTF-8", progress_bar=True
+    ) as fin:
+        for line_no, line in enumerate(fin):
+            try:
+                document_dict = json.loads(line)
+            except JSONDecodeError:
+                _LOGGER.error(f"Error in line {line_no} of file '{data_file}'.")
+                raise
+
+            document_dict["nasty_batch_meta"] = nasty_batch_meta
+            yield NastyBatchResultsTwitterDocument.from_dict(document_dict)
