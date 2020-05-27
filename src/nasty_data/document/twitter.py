@@ -29,10 +29,6 @@ from elasticsearch_dsl import (
     Object,
     Short,
     Text,
-    analyzer,
-    char_filter,
-    token_filter,
-    tokenizer,
 )
 from overrides import overrides
 from typing_extensions import Final
@@ -56,27 +52,6 @@ from nasty_data.elasticsearch_.index import BaseDocument
 _INDEX_OPTIONS: Final[str] = "offsets"
 _INDEX_PHRASES: Final[bool] = False
 _INDEX_TERM_VECTOR: Final[str] = "with_positions_offsets"
-
-_STANDARD_ANALYZER = analyzer(
-    "standard_uax_url_email",
-    char_filter=[char_filter("html_strip")],
-    tokenizer=tokenizer("uax_url_email"),
-    filter=[token_filter("asciifolding"), token_filter("lowercase")],
-)
-_ENGLISH_ANALYZER = analyzer(
-    "english_uax_url_email",
-    char_filter=[char_filter("html_strip")],
-    tokenizer=tokenizer("uax_url_email"),
-    filter=[
-        token_filter("asciifolding"),
-        token_filter(
-            "english_possessive_stemmer", type="stemmer", language="possessive_english"
-        ),
-        token_filter("lowercase"),
-        token_filter("english_stop", type="stop", stopwords="_english_"),
-        token_filter("english_stemmer", type="stemmer", language="english"),
-    ],
-)
 
 
 class TwitterJsonAsStr(Keyword):
@@ -309,10 +284,11 @@ class TwitterUser(InnerDoc):
     description = Text(
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
-        analyzer=_STANDARD_ANALYZER,
-        fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
         term_vector=_INDEX_TERM_VECTOR,
+        analyzer="whitespace",
     )
+    description_orig = Keyword(doc_values=False, index=False)
+    description_tokens = Keyword()
     url = Keyword(doc_values=False)
     entities = Object(TwitterUserEntities)
 
@@ -402,10 +378,11 @@ class TwitterDocument(BaseDocument):
     full_text = Text(
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
-        analyzer=_STANDARD_ANALYZER,
-        fields={"english_analyzed": Text(analyzer=_ENGLISH_ANALYZER)},
         term_vector=_INDEX_TERM_VECTOR,
+        analyzer="whitespace",
     )
+    full_text_orig = Keyword(doc_values=False, index=False)
+    full_text_tokens = Keyword()
 
     truncated = Boolean()
     display_text_range = Integer(doc_values=False, index=False, multi=True)
@@ -482,5 +459,10 @@ class TwitterDocument(BaseDocument):
             additional_media_info = media.get("additional_media_info")
             if additional_media_info:
                 additional_media_info.pop("source_user", None)
+
+        cls.tokenize_field(result, "full_text", lang=cast(str, result["lang"]))
+        cls.tokenize_field(
+            result, "user", "description", lang=cast(str, result["lang"])
+        )
 
         return result

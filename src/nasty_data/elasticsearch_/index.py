@@ -22,18 +22,28 @@ from typing import (
     Mapping,
     MutableMapping,
     Optional,
+    Sequence,
     Tuple,
     Type,
     TypeVar,
     cast,
 )
+from unicodedata import normalize
 
 from elasticsearch.exceptions import ElasticsearchException
 from elasticsearch.helpers import bulk
 from elasticsearch_dsl import Document, Index, connections
+from lxml import html
+from nasty_utils import checked_cast
+from somajo import SoMaJo
 from typing_extensions import Final
 
 _LOGGER: Final[Logger] = getLogger(__name__)
+
+_TOKENIZER = {
+    "en": SoMaJo("en_PTB", split_sentences=False),
+    "de": SoMaJo("de_CMC", split_sentences=False),
+}
 
 _T_BaseDocument = TypeVar("_T_BaseDocument", bound="BaseDocument")
 
@@ -62,6 +72,52 @@ class BaseDocument(Document):
         cls, doc_dict: MutableMapping[str, object]
     ) -> MutableMapping[str, object]:
         return doc_dict
+
+    @classmethod
+    def tokenize_field(
+        cls, doc_dict: MutableMapping[str, object], *field_path: str, lang: str = "en",
+    ) -> None:
+        if lang not in _TOKENIZER.keys():
+            lang = "en"
+
+        segment = field_path[0]
+        value = doc_dict.get(segment)
+        if value is None:
+            return
+        elif len(field_path) == 1:
+            (
+                doc_dict[segment],
+                doc_dict[segment + "_orig"],
+                doc_dict[segment + "_tokens"],
+            ) = cls._tokenize(checked_cast(str, value), lang)
+        elif isinstance(value, MutableMapping):
+            cls.tokenize_field(value, *field_path[1:], lang=lang)
+        elif isinstance(value, Sequence):
+            for v in value:
+                cls.tokenize_field(v, *field_path[1:], lang=lang)
+        else:
+            raise ValueError(
+                f"Value is of type {type(value)}, expected {MutableMapping} or "
+                f"{Sequence}."
+            )
+
+    @classmethod
+    def _tokenize(cls, text_orig: str, lang: str) -> Tuple[str, str, Sequence[str]]:
+        text = text_orig.strip()
+        text = normalize("NFKC", text)
+        if not text:
+            return "", "", []
+
+        text = str(html.fromstring(text).text_content())
+        if not text:
+            return "", "", []
+
+        tokens = [
+            token.text.lower()
+            for token in next(_TOKENIZER[lang].tokenize_text([text]))
+            if (token.token_class not in ["URL", "symbol"])
+        ]
+        return " ".join(tokens), text_orig, tokens
 
     @classmethod
     def meta_field(cls) -> Optional[Tuple[str, str]]:
@@ -201,7 +257,7 @@ def add_documents_to_index(index_name: str, documents: Iterator[BaseDocument]) -
             f"Failed to indexed {num_failed} documents ({num_success} succeeded)."
         )
 
-    _LOGGER.debug(f"Succesfully indexed {num_success} documents.")
+    _LOGGER.debug(f"Successfully indexed {num_success} documents.")
 
 
 def analyze_index(index_name: str, document_cls: Type[_T_BaseDocument]) -> None:
