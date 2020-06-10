@@ -19,19 +19,8 @@ from datetime import date
 from enum import Enum
 from functools import partial
 from pathlib import Path
-from typing import Callable, Iterator, Optional, Type, TypeVar, cast
+from typing import Iterator, Mapping, Optional, Type, TypeVar
 
-from nasty_utils import (
-    Argument,
-    ArgumentGroup,
-    Command,
-    CommandMeta,
-    Flag,
-    Program,
-    ProgramMeta,
-    parse_enum_arg,
-    parse_yyyy_mm_arg,
-)
 from overrides import overrides
 
 import nasty_data
@@ -44,14 +33,25 @@ from nasty_data.elasticsearch_.index import (
 )
 from nasty_data.source.nasty_batch_results import (
     NastyBatchResultsTwitterDocument,
-    load_documents_from_nasty_batch_results,
+    load_document_dicts_from_nasty_batch_results,
 )
 from nasty_data.source.pushshift import (
     PushshiftDumpType,
     PushshiftRedditDocument,
     download_pushshift_dumps,
-    load_documents_from_pushshift_dump,
+    load_document_dicts_from_pushshift_dump,
     sample_pushshift_dumps,
+)
+from nasty_utils import (
+    Argument,
+    ArgumentGroup,
+    Command,
+    CommandMeta,
+    Flag,
+    Program,
+    ProgramMeta,
+    parse_enum_arg,
+    parse_yyyy_mm_arg,
 )
 
 _T_BaseDocument = TypeVar("_T_BaseDocument", bound=BaseDocument)
@@ -67,14 +67,11 @@ class _IndexType(Enum):
             _IndexType.REDDIT: PushshiftRedditDocument,
         }[self]
 
-    def load_documents(self, file: Path) -> Iterator[BaseDocument]:
-        yield from cast(
-            Callable[[Path], Iterator[BaseDocument]],
-            {
-                _IndexType.TWITTER: load_documents_from_nasty_batch_results,
-                _IndexType.REDDIT: load_documents_from_pushshift_dump,
-            }[self],
-        )(file)
+    def load_document_dicts(self, file: Path) -> Iterator[Mapping[str, object]]:
+        yield from {
+            _IndexType.TWITTER: load_document_dicts_from_nasty_batch_results,
+            _IndexType.REDDIT: load_document_dicts_from_pushshift_dump,
+        }[self](file)
 
 
 _INDEX_TYPE_ARGUMENT = Argument(
@@ -147,10 +144,20 @@ class _IndexDumpCommand(Command[ElasticsearchConfig]):
     file: Path = Argument(
         name="file",
         short_name="f",
-        desc="Dump file containting all posts to index.",
+        desc="Dump file containing all posts to index.",
         metavar="FILE",
         required=True,
         deserializer=Path,
+    )
+    num_procs: int = Argument(
+        name="num-procs",
+        desc=(
+            "Number of processors to use for parallel preprocessing "
+            "(default: 0, detects number of available processors)."
+        ),
+        metavar="N",
+        default=0,
+        deserializer=int,
     )
 
     @classmethod
@@ -166,7 +173,10 @@ class _IndexDumpCommand(Command[ElasticsearchConfig]):
     def run(self) -> None:
         self.config.setup_elasticsearch_connection()
         add_documents_to_index(
-            self.index_name, self.index_type.load_documents(self.file),
+            self.index_name,
+            self.index_type.document_cls(),
+            self.index_type.load_document_dicts(self.file),
+            num_procs=self.num_procs if self.num_procs > 0 else None,
         )
 
 

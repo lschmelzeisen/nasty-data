@@ -88,14 +88,14 @@ from nasty_data.source.nasty_batch_results import (
     NastyBatchMeta,
     NastyBatchResultsTwitterDocument,
     NastyRequestMeta,
-    load_documents_from_nasty_batch_results,
+    load_document_dicts_from_nasty_batch_results,
 )
 from nasty_data.source.pushshift import (
     PushshiftDumpMeta,
     PushshiftDumpType,
     PushshiftRedditDocument,
     download_pushshift_dumps,
-    load_documents_from_pushshift_dump,
+    load_document_dicts_from_pushshift_dump,
     sample_pushshift_dumps,
 )
 
@@ -165,12 +165,12 @@ __all__ = [
     "NastyBatchMeta",
     "NastyBatchResultsTwitterDocument",
     "NastyRequestMeta",
-    "load_documents_from_nasty_batch_results",
+    "load_document_dicts_from_nasty_batch_results",
     "PushshiftDumpMeta",
     "PushshiftDumpType",
     "PushshiftRedditDocument",
     "download_pushshift_dumps",
-    "load_documents_from_pushshift_dump",
+    "load_document_dicts_from_pushshift_dump",
     "sample_pushshift_dumps",
 ]
 

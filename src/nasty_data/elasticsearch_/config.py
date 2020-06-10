@@ -18,8 +18,9 @@ from logging import Logger, getLogger
 from pathlib import Path
 
 from elasticsearch_dsl import connections
-from nasty_utils import Config, ConfigAttr, ConfigSection, LoggingConfig
 from typing_extensions import Final
+
+from nasty_utils import Config, ConfigAttr, ConfigSection, LoggingConfig
 
 _LOGGER: Final[Logger] = getLogger(__name__)
 
@@ -44,22 +45,18 @@ class ElasticsearchConfig(LoggingConfig):
                 " Configuration without a certificate is not supported at this time."
             )
 
+        # TODO: see which settings can be moved to config (max_retries, timeout, etc.)
         connections.create_connection(
-            hosts=self.elasticsearch.host,
-            port=self.elasticsearch.port,
-            http_auth=(self.elasticsearch.user, self.elasticsearch.password),
-            # Use SSL
+            hosts=[{"host": self.elasticsearch.host, "port": self.elasticsearch.port}],
+            max_retries=5,
+            retry_on_timeout=True,
             scheme="https",
             use_ssl=True,
-            ssl_show_warn=True,
-            ssl_assert_hostname=self.elasticsearch.host,
-            verify_certs=True,
-            ca_certs=str(self.elasticsearch.ca_crt_path),
-            # Enable HTTP compression because we will probably insert a lot of large
-            # documents and the documentation says it will help:
-            # https://elasticsearch-py.readthedocs.io/en/master/#compression
+            timeout=10,
             http_compress=True,
-            # For development, so errors are seen comparatively fast.
-            max_retries=2,
-            timeout=3,
+            http_auth=(self.elasticsearch.user, self.elasticsearch.password),
+            verify_certs=True,
+            ssl_show_warn=True,
+            ca_certs=str(self.elasticsearch.ca_crt_path),
+            ssl_assert_hostname=self.elasticsearch.host,
         )

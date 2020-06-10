@@ -21,10 +21,10 @@ from pathlib import Path
 from typing import Iterator, Mapping, Optional, Tuple
 
 from elasticsearch_dsl import Date, InnerDoc, Integer, Keyword, Nested, Object
-from nasty_utils import DecompressingTextIOWrapper
 from typing_extensions import Final
 
 from nasty_data.document.twitter import TwitterDocument
+from nasty_utils import DecompressingTextIOWrapper
 
 _LOGGER: Final[Logger] = getLogger(__name__)
 
@@ -55,9 +55,9 @@ class NastyBatchResultsTwitterDocument(TwitterDocument):
         return "nasty_batch_meta", "id"
 
 
-def load_documents_from_nasty_batch_results(
-    data_file: Path,
-) -> Iterator[NastyBatchResultsTwitterDocument]:
+def load_document_dicts_from_nasty_batch_results(
+    data_file: Path, *, progress_bar: bool = True,
+) -> Iterator[Mapping[str, object]]:
     meta_file = data_file.with_name(
         data_file.name[: -len(".data.jsonl.xz")] + ".meta.json"
     )
@@ -68,7 +68,7 @@ def load_documents_from_nasty_batch_results(
             nasty_batch_meta = json.load(fin)
 
     with DecompressingTextIOWrapper(
-        data_file, encoding="UTF-8", progress_bar=True
+        data_file, encoding="UTF-8", progress_bar=progress_bar, warn_uncompressed=False
     ) as fin:
         for line_no, line in enumerate(fin):
             try:
@@ -78,4 +78,4 @@ def load_documents_from_nasty_batch_results(
                 raise
 
             document_dict["nasty_batch_meta"] = nasty_batch_meta
-            yield NastyBatchResultsTwitterDocument.from_dict(document_dict)
+            yield document_dict

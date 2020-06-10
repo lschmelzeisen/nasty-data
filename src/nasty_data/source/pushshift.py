@@ -27,6 +27,9 @@ from typing import Counter, Iterator, Mapping, Optional, Tuple
 
 import requests
 from elasticsearch_dsl import Date, InnerDoc, Keyword, Object
+from typing_extensions import Final
+
+from nasty_data.document.reddit import RedditDocument
 from nasty_utils import (
     DecompressingTextIOWrapper,
     FileNotOnServerError,
@@ -37,9 +40,6 @@ from nasty_utils import (
     parse_yyyy_mm,
     sha256sum,
 )
-from typing_extensions import Final
-
-from nasty_data.document.reddit import RedditDocument
 
 _LOGGER: Final[Logger] = getLogger(__name__)
 
@@ -214,13 +214,12 @@ def _sample_pushshift_dump(dump_file: Path) -> Path:
 
     sample_file_tmp = sample_file.with_name(sample_file.name + ".tmp")
     with sample_file_tmp.open("w", encoding="UTF-8") as fout:
-        for document in load_documents_from_pushshift_dump(dump_file):
-            document_dict = document.to_dict(include_meta=False)
+        for document_dict in load_document_dicts_from_pushshift_dump(dump_file):
             keys.update(document_dict.keys())
             if all(keys[key] > 100 for key in document_dict.keys()):
                 continue
 
-            fout.write(json.dumps(document) + "\n")
+            fout.write(json.dumps(document_dict) + "\n")
 
     sample_file_tmp.rename(sample_file)
     return sample_file
@@ -240,9 +239,9 @@ class PushshiftRedditDocument(RedditDocument):
         return "pushshift_dump_meta", "dump_file"
 
 
-def load_documents_from_pushshift_dump(
-    dump_file: Path,
-) -> Iterator[PushshiftRedditDocument]:
+def load_document_dicts_from_pushshift_dump(
+    dump_file: Path, *, progress_bar: bool = True,
+) -> Iterator[Mapping[str, object]]:
     pushshift_dump_meta: Optional[Mapping[str, object]] = None
     for dump_type, file_pattern in (
         (t, p) for t, ps in _PUSHSHIFT_FILE_PATTERNS.items() for p in ps
@@ -257,7 +256,7 @@ def load_documents_from_pushshift_dump(
             break
 
     with DecompressingTextIOWrapper(
-        dump_file, encoding="UTF-8", progress_bar=True
+        dump_file, encoding="UTF-8", progress_bar=progress_bar, warn_uncompressed=False
     ) as fin:
         for line_no, line in enumerate(fin):
             # For some reason, there is at least one line (specifically, line 29876 in
@@ -272,4 +271,4 @@ def load_documents_from_pushshift_dump(
                 raise
 
             document_dict["pushshift_dump_meta"] = pushshift_dump_meta
-            yield PushshiftRedditDocument.from_dict(document_dict)
+            yield document_dict

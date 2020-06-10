@@ -16,7 +16,9 @@
 import json
 from copy import deepcopy
 from datetime import datetime
+from functools import partial
 from logging import Logger, getLogger
+from multiprocessing.pool import Pool
 from typing import (
     Iterator,
     Mapping,
@@ -34,9 +36,10 @@ from elasticsearch.exceptions import ElasticsearchException
 from elasticsearch.helpers import bulk
 from elasticsearch_dsl import Document, Index, connections
 from lxml import html
-from nasty_utils import checked_cast
 from somajo import SoMaJo
 from typing_extensions import Final
+
+from nasty_utils import checked_cast
 
 _LOGGER: Final[Logger] = getLogger(__name__)
 
@@ -147,7 +150,7 @@ def new_index(
     :param update_alias: If true, move the alias to the newly created index.
     """
 
-    _LOGGER.debug(f"Creating new index {index_base_name}.")
+    _LOGGER.debug(f"Creating new index '{index_base_name}'.")
 
     new_index_name = index_base_name + "-" + datetime.now().strftime("%Y%m%d-%H%M%S")
     new_index = Index(new_index_name)
@@ -187,69 +190,88 @@ def ensure_index_exists(index_name: str) -> None:
         raise Exception(f"Elasticsearch index '{index_name}' does not exist.")
 
 
-def add_documents_to_index(index_name: str, documents: Iterator[BaseDocument]) -> None:
-    _LOGGER.debug(f"Indexing documents to index '{index_name}'.")
+def _make_upsert_op(
+    document_dict: Mapping[str, object],
+    *,
+    index_name: str,
+    document_cls: Type[BaseDocument],
+) -> Mapping[str, object]:
+    # Deserialize data and then serialize again. Needed so that our Python
+    # conversion of some data types arrives in the JSON send to ElasticSearch.
+    document = document_cls.from_dict(document_dict)
+    document.full_clean()
+    document_dict = document.to_dict(include_meta=False)
 
-    def make_upsert_op(document: BaseDocument) -> Mapping[str, object]:
-        # Deserialize data and then serialize again. Needed so that our Python
-        # conversion of some data types arrives in the JSON send to ElasticSearch.
-        document.full_clean()
+    meta_field, meta_field_id = document_cls.meta_field() or (None, None)
+    meta_field_data = document_dict.get(meta_field) if meta_field else None
 
-        document_dict = document.to_dict(include_meta=False)
-        meta_field, meta_field_id = document.meta_field() or (None, None)
-        meta_field_data = document_dict.get(meta_field) if meta_field else None
-
-        result: MutableMapping[str, object] = {
-            "_id": document.meta.id,
-            "_index": index_name,
-            "_op_type": "update",
-        }
-        if not (meta_field and meta_field_id and meta_field_data):
-            result["doc_as_upsert"] = True
-            result["doc"] = document_dict
-        else:
-            result["upsert"] = document_dict
-            result["script"] = {
-                "lang": "painless",
-                "source": """
-                    if (ctx._source.{meta_field} == null) {{
-                        ctx._source.{meta_field} = params.meta_field;
-                    }} else if (ctx._source.{meta_field} instanceof List) {{
-                        boolean found = false;
-                        for (meta_field in ctx._source.{meta_field}) {{
-                            if (
-                                meta_field.{meta_field_id}
-                                == params.meta_field.{meta_field_id}
-                            ) {{
-                                found = true;
-                                break;
-                            }}
-                        }}
-                        if (!found) {{
-                            ctx._source.{meta_field}.add(params.meta_field);
-                        }}
-                    }} else {{
+    result: MutableMapping[str, object] = {
+        "_id": document.meta.id,
+        "_index": index_name,
+        "_op_type": "update",
+    }
+    if not (meta_field and meta_field_id and meta_field_data):
+        result["doc_as_upsert"] = True
+        result["doc"] = document_dict
+    else:
+        result["upsert"] = document_dict
+        result["script"] = {
+            "lang": "painless",
+            "source": """
+                if (ctx._source.{meta_field} == null) {{
+                    ctx._source.{meta_field} = params.meta_field;
+                }} else if (ctx._source.{meta_field} instanceof List) {{
+                    boolean found = false;
+                    for (meta_field in ctx._source.{meta_field}) {{
                         if (
-                            ctx._source.{meta_field}.{meta_field_id}
-                            != params.meta_field.{meta_field_id}
+                            meta_field.{meta_field_id}
+                            == params.meta_field.{meta_field_id}
                         ) {{
-                            ctx._source.{meta_field} = [
-                                ctx._source.{meta_field}, params.meta_field
-                            ];
+                            found = true;
+                            break;
                         }}
                     }}
-                """.format(
-                    meta_field=meta_field, meta_field_id=meta_field_id
+                    if (!found) {{
+                        ctx._source.{meta_field}.add(params.meta_field);
+                    }}
+                }} else {{
+                    if (
+                        ctx._source.{meta_field}.{meta_field_id}
+                        != params.meta_field.{meta_field_id}
+                    ) {{
+                        ctx._source.{meta_field} = [
+                            ctx._source.{meta_field}, params.meta_field
+                        ];
+                    }}
+                }}
+            """.format(
+                meta_field=meta_field, meta_field_id=meta_field_id
+            ),
+            "params": {"meta_field": meta_field_data},
+        }
+    return result
+
+
+def add_documents_to_index(
+    index_name: str,
+    document_cls: Type[BaseDocument],
+    document_dicts: Iterator[Mapping[str, object]],
+    *,
+    num_procs: Optional[int] = None,
+) -> None:
+    _LOGGER.debug(f"Indexing documents to index '{index_name}'.")
+
+    def make_upsert_ops() -> Iterator[Mapping[str, object]]:
+        with Pool(processes=num_procs) as pool:
+            yield from pool.imap_unordered(
+                partial(
+                    _make_upsert_op, index_name=index_name, document_cls=document_cls
                 ),
-                "params": {"meta_field": meta_field_data},
-            }
-        return result
+                document_dicts,
+            )
 
     num_success, num_failed = bulk(
-        connections.get_connection(),
-        map(make_upsert_op, documents),
-        stats_only=True,
-        max_retries=5,
+        connections.get_connection(), make_upsert_ops(), stats_only=True, max_retries=5,
     )
 
     if num_failed:
