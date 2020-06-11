@@ -257,6 +257,7 @@ def add_documents_to_index(
     document_cls: Type[BaseDocument],
     document_dicts: Iterator[Mapping[str, object]],
     *,
+    max_retries: int = 5,
     num_procs: Optional[int] = None,
 ) -> None:
     _LOGGER.debug(f"Indexing documents to index '{index_name}'.")
@@ -271,7 +272,10 @@ def add_documents_to_index(
             )
 
     num_success, num_failed = bulk(
-        connections.get_connection(), make_upsert_ops(), stats_only=True, max_retries=5,
+        connections.get_connection(),
+        make_upsert_ops(),
+        stats_only=True,
+        max_retries=max_retries,
     )
 
     if num_failed:

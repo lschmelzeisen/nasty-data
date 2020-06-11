@@ -176,6 +176,7 @@ class _IndexDumpCommand(Command[ElasticsearchConfig]):
             self.index_name,
             self.index_type.document_cls(),
             self.index_type.load_document_dicts(self.file),
+            max_retries=self.config.elasticsearch.max_retries,
             num_procs=self.num_procs if self.num_procs > 0 else None,
         )
 

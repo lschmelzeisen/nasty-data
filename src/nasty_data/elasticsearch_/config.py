@@ -31,6 +31,10 @@ class _ElasticsearchSection(Config):
     user: str = ConfigAttr(default="elastic")
     password: str = ConfigAttr(default="", secret=True)
     ca_crt_path: Path = ConfigAttr(required=True)
+    timeout: float = ConfigAttr(default=10.0)
+    retry_on_timeout: bool = ConfigAttr(default=True)
+    max_retries: int = ConfigAttr(default=5)
+    http_compress: bool = ConfigAttr(default=True)
 
 
 class ElasticsearchConfig(LoggingConfig):
@@ -45,15 +49,14 @@ class ElasticsearchConfig(LoggingConfig):
                 " Configuration without a certificate is not supported at this time."
             )
 
-        # TODO: see which settings can be moved to config (max_retries, timeout, etc.)
         connections.create_connection(
             hosts=[{"host": self.elasticsearch.host, "port": self.elasticsearch.port}],
-            max_retries=5,
-            retry_on_timeout=True,
+            timeout=self.elasticsearch.timeout,
+            retry_on_timeout=self.elasticsearch.retry_on_timeout,
+            max_retries=self.elasticsearch.max_retries,
+            http_compress=self.elasticsearch.http_compress,
             scheme="https",
             use_ssl=True,
-            timeout=10,
-            http_compress=True,
             http_auth=(self.elasticsearch.user, self.elasticsearch.password),
             verify_certs=True,
             ssl_show_warn=True,
