@@ -21,16 +21,16 @@ from datetime import date
 from enum import Enum
 from itertools import chain
 from json import JSONDecodeError
-from logging import Logger, getLogger
+from logging import getLogger
 from pathlib import Path
 from typing import Counter, Iterator, Mapping, Optional, Tuple
 
 import requests
 from elasticsearch_dsl import Date, InnerDoc, Keyword, Object
-from typing_extensions import Final
 
 from nasty_data.document.reddit import RedditDocument
 from nasty_utils import (
+    ColoredBraceStyleAdapter,
     DecompressingTextIOWrapper,
     FileNotOnServerError,
     advance_date_by_months,
@@ -41,7 +41,7 @@ from nasty_utils import (
     sha256sum,
 )
 
-_LOGGER: Final[Logger] = getLogger(__name__)
+_LOGGER = ColoredBraceStyleAdapter(getLogger(__name__))
 
 
 class PushshiftDumpType(Enum):
@@ -93,8 +93,11 @@ def download_pushshift_dumps(
     log_since = format_yyyy_mm(since) if since is not None else "earliest"
     log_until = format_yyyy_mm(until) if until is not None else "latest"
     _LOGGER.info(
-        f"Downloading Pushshift dumps of Reddit {log_dump_type} from {log_since} to "
-        f"{log_until} to '{directory}'."
+        "Downloading Pushshift dumps of Reddit {} from {} to {} to '{}'.",
+        log_dump_type,
+        log_since,
+        log_until,
+        directory,
     )
 
     Path.mkdir(directory, parents=True, exist_ok=True)
@@ -148,7 +151,7 @@ def _download_pushshift_dump(
     for file_pattern in _PUSHSHIFT_FILE_PATTERNS[dump_type]:
         target = file_name_from_pattern(file_pattern)
         if target.exists():
-            _LOGGER.debug(f"File {target.name} already exists, skipping.")
+            _LOGGER.debug("File '{}' already exists, skipping.", target.name)
             return
 
     for file_pattern in _PUSHSHIFT_FILE_PATTERNS[dump_type]:
@@ -172,7 +175,7 @@ def _download_pushshift_dump(
     expected_checksum = checksums.get(target.name)
     if expected_checksum is None:
         _LOGGER.info(
-            f"Download for file {target.name} complete, but no checksum available."
+            "Download for file {} complete, but no checksum available.", target.name
         )
     else:
         checksum = sha256sum(target_tmp)
@@ -187,7 +190,7 @@ def _download_pushshift_dump(
 
 
 def sample_pushshift_dumps(directory: Path) -> None:
-    _LOGGER.info(f"Sampling Pushshift dumps in '{directory}'.")
+    _LOGGER.info("Sampling Pushshift dumps in '{}'.", directory)
 
     samples = []
     for file in sorted(directory.iterdir()):
@@ -207,7 +210,7 @@ def sample_pushshift_dumps(directory: Path) -> None:
 def _sample_pushshift_dump(dump_file: Path) -> Path:
     sample_file = dump_file.parent / (dump_file.name + ".sample")
     if sample_file.exists():
-        _LOGGER.debug(f"Sample of {dump_file.name} already exists, skipping.")
+        _LOGGER.debug("Sample of {} already exists, skipping.", dump_file.name)
         return sample_file
 
     keys = Counter[str]()
@@ -267,7 +270,7 @@ def load_document_dicts_from_pushshift_dump(
             try:
                 document_dict = json.loads(line)
             except JSONDecodeError:
-                _LOGGER.error(f"Error in line {line_no} of file '{dump_file}'.")
+                _LOGGER.error("Error in line {} of file '{}'.", line_no, dump_file)
                 raise
 
             document_dict["pushshift_dump_meta"] = pushshift_dump_meta

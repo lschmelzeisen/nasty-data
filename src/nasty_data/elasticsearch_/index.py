@@ -17,7 +17,7 @@ import json
 from copy import deepcopy
 from datetime import datetime
 from functools import partial
-from logging import Logger, getLogger
+from logging import getLogger
 from multiprocessing.pool import Pool
 from typing import (
     Iterator,
@@ -37,11 +37,10 @@ from elasticsearch.helpers import bulk
 from elasticsearch_dsl import Document, Index, connections
 from lxml import html
 from somajo import SoMaJo
-from typing_extensions import Final
 
-from nasty_utils import checked_cast
+from nasty_utils import ColoredBraceStyleAdapter, checked_cast
 
-_LOGGER: Final[Logger] = getLogger(__name__)
+_LOGGER = ColoredBraceStyleAdapter(getLogger(__name__))
 
 _TOKENIZER = {
     "en": SoMaJo("en_PTB", split_sentences=False),
@@ -150,7 +149,7 @@ def new_index(
     :param update_alias: If true, move the alias to the newly created index.
     """
 
-    _LOGGER.debug(f"Creating new index '{index_base_name}'.")
+    _LOGGER.debug("Creating new index '{}'.", index_base_name)
 
     new_index_name = index_base_name + "-" + datetime.now().strftime("%Y%m%d-%H%M%S")
     new_index = Index(new_index_name)
@@ -260,7 +259,7 @@ def add_documents_to_index(
     max_retries: int = 5,
     num_procs: Optional[int] = None,
 ) -> None:
-    _LOGGER.debug(f"Indexing documents to index '{index_name}'.")
+    _LOGGER.debug("Indexing documents to index '{}'.", index_name)
 
     def make_upsert_ops() -> Iterator[Mapping[str, object]]:
         with Pool(processes=num_procs) as pool:
@@ -283,7 +282,7 @@ def add_documents_to_index(
             f"Failed to indexed {num_failed} documents ({num_success} succeeded)."
         )
 
-    _LOGGER.debug(f"Successfully indexed {num_success} documents.")
+    _LOGGER.debug("Successfully indexed {} documents.", num_success)
 
 
 def analyze_index(index_name: str, document_cls: Type[_T_BaseDocument]) -> None:
@@ -293,8 +292,10 @@ def analyze_index(index_name: str, document_cls: Type[_T_BaseDocument]) -> None:
 
 def _log_mapping_diff(index_name: str, document_cls: Type[_T_BaseDocument]) -> None:
     _LOGGER.debug(
-        f"Logging mapping difference between current mapping of index '{index_name}' "
-        f"and mapping induced by document class {document_cls}."
+        "Logging mapping difference between current mapping of index '{}' and mapping "
+        "induced by document class {}.",
+        index_name,
+        document_cls,
     )
 
     current_index = Index(index_name)
@@ -346,12 +347,12 @@ def _recursive_mapping_diff(
             continue
 
         if not induced_field_mapping:
-            _LOGGER.info(indent + field + ": only exists in current dynamic mapping.")
-            _LOGGER.info(f"{indent}  [current]")
+            _LOGGER.info(indent + "{}: only exists in current dynamic mapping.", field)
+            _LOGGER.info(indent + "  [current]")
             _log_field_mapping(current_field_mapping, depth=depth + 1)
             continue
 
-        _LOGGER.info(indent + field + ":")
+        _LOGGER.info(indent + "{}:", field)
         if (
             "properties" in current_field_mapping
             and "properties" in induced_field_mapping
@@ -368,14 +369,14 @@ def _recursive_mapping_diff(
                 depth=depth + 1,
             )
         else:
-            _LOGGER.info(f"{indent}  [current]")
+            _LOGGER.info(indent + "  [current]")
             _log_field_mapping(current_field_mapping, depth=depth + 1)
-            _LOGGER.info(f"{indent}  [induced]")
+            _LOGGER.info(indent + "  [induced]")
             _log_field_mapping(induced_field_mapping, depth=depth + 1)
 
     for field, induced_field_mapping in induced_mapping.items():
-        _LOGGER.info(indent + field + ": only exists in induced mapping.")
-        _LOGGER.info(f"{indent}  [induced]")
+        _LOGGER.info(indent + "{}: only exists in induced mapping.", field)
+        _LOGGER.info(indent + "  [induced]")
         _log_field_mapping(induced_field_mapping, depth=depth + 1)
 
 
@@ -384,4 +385,4 @@ def _log_field_mapping(field_mapping: Mapping[str, object], *, depth: int) -> No
     for line in json.dumps(field_mapping, indent=2, sort_keys=False).splitlines():
         if line == "{" or line == "}":
             continue
-        _LOGGER.info(indent + line)
+        _LOGGER.info(indent + line.replace("{", "{{").replace("}", "}}"))

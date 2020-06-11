@@ -17,7 +17,7 @@
 
 from _pytest.config import Config
 
-from nasty_utils.logging_ import LoggingConfig
+from nasty_utils import LoggingConfig
 
 
 def pytest_configure(config: Config) -> None:

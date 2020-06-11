@@ -16,17 +16,16 @@
 
 import json
 from json import JSONDecodeError
-from logging import Logger, getLogger
+from logging import getLogger
 from pathlib import Path
 from typing import Iterator, Mapping, Optional, Tuple
 
 from elasticsearch_dsl import Date, InnerDoc, Integer, Keyword, Nested, Object
-from typing_extensions import Final
 
 from nasty_data.document.twitter import TwitterDocument
-from nasty_utils import DecompressingTextIOWrapper
+from nasty_utils import ColoredBraceStyleAdapter, DecompressingTextIOWrapper
 
-_LOGGER: Final[Logger] = getLogger(__name__)
+_LOGGER = ColoredBraceStyleAdapter(getLogger(__name__))
 
 
 class NastyRequestMeta(InnerDoc):
@@ -74,7 +73,7 @@ def load_document_dicts_from_nasty_batch_results(
             try:
                 document_dict = json.loads(line)
             except JSONDecodeError:
-                _LOGGER.error(f"Error in line {line_no} of file '{data_file}'.")
+                _LOGGER.error("Error in line {} of file '{}'.", line_no, data_file)
                 raise
 
             document_dict["nasty_batch_meta"] = nasty_batch_meta

@@ -14,15 +14,20 @@
 # limitations under the License.
 #
 
-from logging import Logger, getLogger
+from logging import getLogger
 from pathlib import Path
 
 from elasticsearch_dsl import connections
-from typing_extensions import Final
 
-from nasty_utils import Config, ConfigAttr, ConfigSection, LoggingConfig
+from nasty_utils import (
+    ColoredBraceStyleAdapter,
+    Config,
+    ConfigAttr,
+    ConfigSection,
+    LoggingConfig,
+)
 
-_LOGGER: Final[Logger] = getLogger(__name__)
+_LOGGER = ColoredBraceStyleAdapter(getLogger(__name__))
 
 
 class _ElasticsearchSection(Config):
