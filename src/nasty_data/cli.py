@@ -14,12 +14,13 @@
 # limitations under the License.
 #
 
-import enum
 from datetime import date
-from enum import Enum
 from functools import partial
+from importlib import import_module
+from inspect import signature
+from logging import getLogger
 from pathlib import Path
-from typing import Iterator, Mapping, Optional, Type, TypeVar
+from typing import Callable, Iterator, Mapping, Optional, Type, TypeVar, cast
 
 from overrides import overrides
 
@@ -31,20 +32,15 @@ from nasty_data.elasticsearch_.index import (
     analyze_index,
     new_index,
 )
-from nasty_data.source.nasty_batch_results import (
-    NastyBatchResultsTwitterDocument,
-    load_document_dicts_from_nasty_batch_results,
-)
 from nasty_data.source.pushshift import (
     PushshiftDumpType,
-    PushshiftRedditDocument,
     download_pushshift_dumps,
-    load_document_dicts_from_pushshift_dump,
     sample_pushshift_dumps,
 )
 from nasty_utils import (
     Argument,
     ArgumentGroup,
+    ColoredBraceStyleAdapter,
     Command,
     CommandMeta,
     Flag,
@@ -54,38 +50,89 @@ from nasty_utils import (
     parse_yyyy_mm_arg,
 )
 
+_LOGGER = ColoredBraceStyleAdapter(getLogger(__name__))
+
 _T_BaseDocument = TypeVar("_T_BaseDocument", bound=BaseDocument)
 
 
-class _IndexType(Enum):
-    TWITTER = enum.auto()
-    REDDIT = enum.auto()
-
-    def document_cls(self) -> Type[BaseDocument]:
-        return {
-            _IndexType.TWITTER: NastyBatchResultsTwitterDocument,
-            _IndexType.REDDIT: PushshiftRedditDocument,
-        }[self]
-
-    def load_document_dicts(self, file: Path) -> Iterator[Mapping[str, object]]:
-        yield from {
-            _IndexType.TWITTER: load_document_dicts_from_nasty_batch_results,
-            _IndexType.REDDIT: load_document_dicts_from_pushshift_dump,
-        }[self](file)
+def _get_module_member_from_fqn(fqn: str) -> object:
+    if "." not in fqn:
+        raise ValueError(f"Not a valid fully-qualified name: '{fqn}'")
+    module_name, member_name = fqn.rsplit(".", maxsplit=1)
+    module = import_module(module_name)
+    member = getattr(module, member_name, None)
+    if member is None:
+        raise ValueError(f"Could not find member '{member_name}' in module '{module}'.")
+    return member
 
 
-_INDEX_TYPE_ARGUMENT = Argument(
-    name="type",
-    short_name="t",
-    desc=f"Type of the index to create ({', '.join(t.name for t in _IndexType)}).",
-    metavar="TYPE",
+def _get_document_cls_from_fqn(fqn: str) -> Type[BaseDocument]:
+    document_cls = _get_module_member_from_fqn(fqn)
+    if not isinstance(document_cls, type):
+        raise ValueError(f"Given value {repr(document_cls)} is not a class.")
+    if not issubclass(document_cls, BaseDocument):
+        raise ValueError(
+            f"Given class {repr(document_cls)} is not a subclass of BaseDocument."
+        )
+    return document_cls
+
+
+def _get_load_document_dicts_func_from_fqn(
+    fqn: str,
+) -> Callable[[Path], Iterator[Mapping[str, object]]]:
+    load_document_dicts_func = _get_module_member_from_fqn(fqn)
+    if not callable(load_document_dicts_func):
+        raise ValueError(
+            f"Given value {repr(load_document_dicts_func)} is not a callable."
+        )
+
+    sig = signature(load_document_dicts_func)
+    if sig.return_annotation == sig.empty:
+        _LOGGER.warning(
+            "Can not verify the return type of given function {!r} because no type "
+            "annotation exists.",
+            load_document_dicts_func,
+        )
+    elif sig.return_annotation != Iterator[Mapping[str, object]]:
+        raise ValueError(
+            f"Return type annotation of given function "
+            f"{repr(load_document_dicts_func)} is not "
+            f"{repr(Iterator[Mapping[str, object]])} but instead "
+            f"{repr(sig.return_annotation)}."
+        )
+
+    if len(sig.parameters) < 1:
+        raise ValueError(
+            f"Given function {repr(load_document_dicts_func)} does not accept a "
+            f"parameter."
+        )
+
+    param = next(iter(sig.parameters.values()))
+    if param.annotation == sig.empty:
+        _LOGGER.warning(
+            "Can not verify the parameter type of given function {!r} because the "
+            "parameter has no type annotation.",
+            load_document_dicts_func,
+        )
+    elif param.annotation != Path:
+        raise ValueError(
+            f"Parameter type annotation of given function "
+            f"{repr(load_document_dicts_func)} is not {repr(Path)} but instead "
+            f"`{repr(param.annotation)}."
+        )
+
+    return cast(
+        Callable[[Path], Iterator[Mapping[str, object]]], load_document_dicts_func
+    )
+
+
+_DOCUMENT_CLS_ARGUMENT = Argument(
+    name="doc-cls",
+    short_name="d",
+    desc="Fully-qualified class name of BaseDocument subclass.",
+    metavar="FQN",
     required=True,
-    deserializer=partial(
-        parse_enum_arg,
-        enum_cls=_IndexType,
-        ignore_case=True,
-        convert_camel_case_for_error=True,
-    ),
+    deserializer=_get_document_cls_from_fqn,
 )
 
 
@@ -98,7 +145,7 @@ class _NewIndexCommand(Command[ElasticsearchConfig]):
         metavar="NAME",
         required=True,
     )
-    index_type: _IndexType = _INDEX_TYPE_ARGUMENT
+    document_cls: Type[BaseDocument] = _DOCUMENT_CLS_ARGUMENT
     move_data: bool = Flag(
         name="move-data", desc="Reindex data from previous index into new one."
     )
@@ -125,7 +172,7 @@ class _NewIndexCommand(Command[ElasticsearchConfig]):
         self.config.setup_elasticsearch_connection()
         new_index(
             self.index_name,
-            self.index_type.document_cls(),
+            self.document_cls,
             move_data=self.move_data,
             update_alias=self.update_alias,
         )
@@ -140,7 +187,20 @@ class _IndexDumpCommand(Command[ElasticsearchConfig]):
         metavar="NAME",
         required=True,
     )
-    index_type: _IndexType = _INDEX_TYPE_ARGUMENT
+    document_cls: Type[BaseDocument] = _DOCUMENT_CLS_ARGUMENT
+    load_document_dicts_func: Callable[
+        [Path], Iterator[Mapping[str, object]]
+    ] = Argument(
+        name="load-fun",
+        short_name="l",
+        desc=(
+            "Fully-qualified name of function taking a file path and yielding document "
+            "dicts (passed to --class init)."
+        ),
+        metavar="FQN",
+        required=True,
+        deserializer=_get_load_document_dicts_func_from_fqn,
+    )
     file: Path = Argument(
         name="file",
         short_name="f",
@@ -174,8 +234,9 @@ class _IndexDumpCommand(Command[ElasticsearchConfig]):
         self.config.setup_elasticsearch_connection()
         add_documents_to_index(
             self.index_name,
-            self.index_type.document_cls(),
-            self.index_type.load_document_dicts(self.file),
+            self.document_cls,
+            # Need type: ignore because of https://github.com/python/mypy/issues/708
+            self.load_document_dicts_func(self.file),  # type: ignore
             max_retries=self.config.elasticsearch.max_retries,
             num_procs=self.num_procs if self.num_procs > 0 else None,
         )
@@ -190,7 +251,7 @@ class _AnalyzeIndexCommand(Command[ElasticsearchConfig]):
         metavar="NAME",
         required=True,
     )
-    index_type: _IndexType = _INDEX_TYPE_ARGUMENT
+    document_cls: Type[BaseDocument] = _DOCUMENT_CLS_ARGUMENT
 
     @classmethod
     @overrides
@@ -202,7 +263,7 @@ class _AnalyzeIndexCommand(Command[ElasticsearchConfig]):
     @overrides
     def run(self) -> None:
         self.config.setup_elasticsearch_connection()
-        analyze_index(self.index_name, self.index_type.document_cls())
+        analyze_index(self.index_name, self.document_cls)
 
 
 class _PushshiftCommand(Command[ElasticsearchConfig]):
