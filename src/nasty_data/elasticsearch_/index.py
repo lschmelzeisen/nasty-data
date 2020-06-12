@@ -259,6 +259,7 @@ def add_documents_to_index(
     max_retries: int = 5,
     num_procs: Optional[int] = None,
 ) -> None:
+    ensure_index_exists(index_name)
     _LOGGER.debug("Indexing documents to index '{}'.", index_name)
 
     def make_upsert_ops() -> Iterator[Mapping[str, object]]:
