@@ -399,6 +399,8 @@ class TwitterDocument(BaseDocument):
     coordinates = Object(TwitterCoordinates)
     place = Object(TwitterPlace)
     contributors = Keyword(multi=True)  # For sample, always None.
+    withheld_scope = Keyword()
+    withheld_copyright = Boolean()
     withheld_in_countries = Keyword(multi=True)
     is_quote_status = Boolean()
     quoted_status_id = Long(doc_values=False, index=False)
