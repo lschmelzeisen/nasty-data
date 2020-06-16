@@ -35,7 +35,7 @@ from typing import (
 )
 
 from elasticsearch.exceptions import ElasticsearchException
-from elasticsearch.helpers import bulk
+from elasticsearch.helpers import streaming_bulk
 from elasticsearch_dsl import Document, Field, Index, InnerDoc, Object, connections
 
 from nasty_utils import ColoredBraceStyleAdapter
@@ -300,19 +300,25 @@ def add_documents_to_index(
                 document_dicts,
             )
 
-    num_success, num_failed = bulk(
+    num_indexed = 0
+
+    for ok, result in streaming_bulk(
         connections.get_connection(),
         make_upsert_ops(),
-        stats_only=True,
         max_retries=max_retries,
-    )
+        raise_on_error=False,
+    ):
+        if ok:
+            num_indexed += 1
+        else:
+            _LOGGER.debug(
+                "Indexed {} documents before the following error.", num_indexed
+            )
+            raise ElasticsearchException(
+                f"An error occurred when indexing documents: {result}"
+            )
 
-    if num_failed:
-        raise ElasticsearchException(
-            f"Failed to indexed {num_failed} documents ({num_success} succeeded)."
-        )
-
-    _LOGGER.debug("Successfully indexed {} documents.", num_success)
+    _LOGGER.debug("Successfully indexed {} documents.", num_indexed)
 
 
 def analyze_index(index_name: str, document_cls: Type[_T_BaseDocument]) -> None:
