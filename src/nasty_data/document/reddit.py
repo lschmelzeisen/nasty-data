@@ -95,6 +95,7 @@ from nasty_utils import checked_cast
 # TODO: Data reading has not been implemented yet. Do so! Take old code as reference:
 #   https://github.com/lschmelzeisen/opamin/blob/03b35d4005fc1642662e69672de4cd2d4ca4660e/opamin/data/reddit.py
 
+
 _INDEX_OPTIONS: Final[str] = "offsets"
 _INDEX_PHRASES: Final[bool] = False
 _INDEX_TERM_VECTOR: Final[str] = "with_positions_offsets"
@@ -134,10 +135,9 @@ class RedditFlairRichtext(InnerDoc):
     t = Text(
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
-        analyzer="whitespace",
+        term_vector=_INDEX_TERM_VECTOR,
+        analyzer="standard",
     )
-    t_orig = Keyword(doc_values=False, index=False)
-    t_tokens = Keyword()
     u = Keyword(doc_values=False, index=False)
 
 
@@ -157,10 +157,9 @@ class RedditAwarding(InnerDoc):
     description = Text(
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
-        analyzer="whitespace",
+        term_vector=_INDEX_TERM_VECTOR,
+        analyzer="standard",
     )
-    description_orig = Keyword(doc_values=False, index=False)
-    description_tokens = Keyword()
     end_date = RedditDate()
     icon_height = Short(doc_values=False, index=False)
     icon_url = Keyword(doc_values=False, index=False)
@@ -210,10 +209,8 @@ class RedditLinkMediaOEmbed(InnerDoc):
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
         term_vector=_INDEX_TERM_VECTOR,
-        analyzer="whitespace",
+        analyzer="standard",
     )
-    description_orig = Keyword(doc_values=False, index=False)
-    description_tokens = Keyword()
     height = Short(doc_values=False, index=False)
     html = Keyword(doc_values=False, index=False)
     html5 = Keyword(doc_values=False, index=False)
@@ -228,10 +225,8 @@ class RedditLinkMediaOEmbed(InnerDoc):
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
         term_vector=_INDEX_TERM_VECTOR,
-        analyzer="whitespace",
+        analyzer="standard",
     )
-    title_orig = Keyword(doc_values=False, index=False)
-    title_tokens = Keyword()
     type = Keyword()
     version = Keyword()
     url = Keyword()
@@ -254,10 +249,9 @@ class RedditLinkMedia(InnerDoc):
     content = Text(
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
-        analyzer="whitespace",
+        term_vector=_INDEX_TERM_VECTOR,
+        analyzer="standard",
     )
-    content_orig = Keyword(doc_values=False, index=False)
-    content_tokens = Keyword()
     event_id = Keyword()
     height = Short(doc_values=False, index=False)
     oembed = Object(RedditLinkMediaOEmbed)
@@ -270,10 +264,9 @@ class RedditLinkMediaEmbed(InnerDoc):
     content = Text(
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
-        analyzer="whitespace",
+        term_vector=_INDEX_TERM_VECTOR,
+        analyzer="standard",
     )
-    content_orig = Keyword(doc_values=False, index=False)
-    content_tokens = Keyword()
     height = Short(doc_values=False, index=False)
     media_domain_url = Keyword(doc_values=False, index=False)
     scrolling = Boolean()
@@ -319,10 +312,9 @@ class RedditLinkCollection(InnerDoc):
     description = Text(
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
-        analyzer="whitespace",
+        term_vector=_INDEX_TERM_VECTOR,
+        analyzer="standard",
     )
-    description_orig = Keyword(doc_values=False, index=False)
-    description_tokens = Keyword()
     display_layout = Keyword()
     last_update_utc = RedditDate()
     link_ids = Keyword(multi=True, doc_values=False)
@@ -331,10 +323,9 @@ class RedditLinkCollection(InnerDoc):
     title = Text(
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
-        analyzer="whitespace",
+        term_vector=_INDEX_TERM_VECTOR,
+        analyzer="standard",
     )
-    title_orig = Keyword(doc_values=False, index=False)
-    title_tokens = Keyword()
 
 
 class RedditLinkOutboundLink(InnerDoc):
@@ -365,10 +356,9 @@ class RedditBaseDocument(BaseDocument):
     author_flair_text = Text(
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
-        analyzer="whitespace",
+        term_vector=_INDEX_TERM_VECTOR,
+        analyzer="standard",
     )
-    author_flair_text_orig = Keyword(doc_values=False, index=False)
-    author_flair_text_tokens = Keyword()
     author_flair_text_color = Keyword(doc_values=False, index=False)
     author_flair_type = Keyword()
     author_fullname = Keyword()
@@ -429,25 +419,17 @@ class RedditBaseDocument(BaseDocument):
 
     @classmethod
     @overrides
-    def prepare_doc_dict(
-        cls, doc_dict: MutableMapping[str, object]
-    ) -> MutableMapping[str, object]:
-        result = super().prepare_doc_dict(doc_dict)
+    def prepare_doc_dict(cls, doc_dict: MutableMapping[str, object]) -> None:
+        super().prepare_doc_dict(doc_dict)
 
         # "media_metadata" contains a mapping of arbitrary IDs to some objects. Such a
         # mapping would result in each ID being added as its own field in Elasticsearch.
         # Therefore we convert this to a list of the same objects. The objects already
         # contain a field with the respective ID.
-        if result.get("media_metadata"):
-            result["media_metadata"] = list(
-                cast(Mapping[str, object], result["media_metadata"]).values()
+        if doc_dict.get("media_metadata"):
+            doc_dict["media_metadata"] = list(
+                cast(Mapping[str, object], doc_dict["media_metadata"]).values()
             )
-
-        cls.tokenize_field(result, "author_flair_text")
-        cls.tokenize_field(result, "author_flair_richtext", "t")
-        cls.tokenize_field(result, "all_awardings", "description")
-
-        return result
 
 
 class RedditLink(RedditBaseDocument):
@@ -458,18 +440,14 @@ class RedditLink(RedditBaseDocument):
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
         term_vector=_INDEX_TERM_VECTOR,
-        analyzer="whitespace",
+        analyzer="standard",
     )
-    title_orig = Keyword(doc_values=False, index=False)
-    title_tokens = Keyword()
     selftext = Text(
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
         term_vector=_INDEX_TERM_VECTOR,
-        analyzer="whitespace",
+        analyzer="standard",
     )
-    selftext_orig = Keyword(doc_values=False, index=False)
-    selftext_tokens = Keyword()
     selftext_html = Keyword(doc_values=False, index=False)
 
     link_flair_background_color = Keyword(doc_values=False, index=False)
@@ -479,10 +457,9 @@ class RedditLink(RedditBaseDocument):
     link_flair_text = Text(
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
-        analyzer="whitespace",
+        term_vector=_INDEX_TERM_VECTOR,
+        analyzer="standard",
     )
-    link_flair_text_orig = Keyword(doc_values=False, index=False)
-    link_flair_text_tokens = Keyword()
     link_flair_text_color = Keyword(doc_values=False, index=False)
     link_flair_type = Keyword()
 
@@ -577,34 +554,15 @@ class RedditLink(RedditBaseDocument):
 
     @classmethod
     @overrides
-    def prepare_doc_dict(
-        cls, doc_dict: MutableMapping[str, object]
-    ) -> MutableMapping[str, object]:
-        result = super().prepare_doc_dict(doc_dict)
-        result["_id"] = "t1_" + checked_cast(str, result["id"])
+    def prepare_doc_dict(cls, doc_dict: MutableMapping[str, object]) -> None:
+        super().prepare_doc_dict(doc_dict)
+        doc_dict["_id"] = "t1_" + checked_cast(str, doc_dict["id"])
 
         # "crosspost_parent_list" contains the whole JSON dict of the post this post
         # is cross-posting somewhere. For simplicity of the data model we discard this
         # here, at the cost of a single ID-lookup to the index should it be needed
         # later.
-        result.pop("crosspost_parent_list", None)
-
-        cls.tokenize_field(result, "title")
-        cls.tokenize_field(result, "selftext")
-        cls.tokenize_field(result, "link_flair_text")
-        cls.tokenize_field(result, "link_flair_richtext", "t")
-        cls.tokenize_field(result, "media", "content")
-        cls.tokenize_field(result, "media", "oembed", "description")
-        cls.tokenize_field(result, "media", "oembed", "title")
-        cls.tokenize_field(result, "media_embed", "content")
-        cls.tokenize_field(result, "secure_media", "content")
-        cls.tokenize_field(result, "secure_media", "oembed", "description")
-        cls.tokenize_field(result, "secure_media", "oembed", "title")
-        cls.tokenize_field(result, "secure_media_embed", "content")
-        cls.tokenize_field(result, "collections", "description")
-        cls.tokenize_field(result, "collections", "title")
-
-        return result
+        doc_dict.pop("crosspost_parent_list", None)
 
 
 class RedditComment(RedditBaseDocument):
@@ -616,10 +574,8 @@ class RedditComment(RedditBaseDocument):
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
         term_vector=_INDEX_TERM_VECTOR,
-        analyzer="whitespace",
+        analyzer="standard",
     )
-    body_orig = Keyword(doc_values=False, index=False)
-    body_tokens = Keyword()
     body_html = Keyword(doc_values=False, index=False)
 
     controversiality = Integer()
@@ -634,23 +590,15 @@ class RedditComment(RedditBaseDocument):
 
     @classmethod
     @overrides
-    def prepare_doc_dict(
-        cls, doc_dict: MutableMapping[str, object]
-    ) -> MutableMapping[str, object]:
-        result = super().prepare_doc_dict(doc_dict)
-        result["_id"] = "t3_" + checked_cast(str, result["id"])
-
-        cls.tokenize_field(result, "body")
-
-        return result
+    def prepare_doc_dict(cls, doc_dict: MutableMapping[str, object]) -> None:
+        super().prepare_doc_dict(doc_dict)
+        doc_dict["_id"] = "t3_" + checked_cast(str, doc_dict["id"])
 
 
 class RedditDocument(RedditLink, RedditComment):
     @classmethod
     @overrides
-    def prepare_doc_dict(
-        cls, doc_dict: MutableMapping[str, object]
-    ) -> MutableMapping[str, object]:
+    def prepare_doc_dict(cls, doc_dict: MutableMapping[str, object]) -> None:
         if "title" in doc_dict and "body" in doc_dict:
             raise ValueError("Given post appears to be both link and comment.")
         elif "title" in doc_dict:

@@ -56,7 +56,7 @@ _INDEX_TERM_VECTOR: Final[str] = "with_positions_offsets"
 
 class TwitterJsonAsStr(Keyword):
     # TODO: also overwrite serialize
-    # TODO: document the different usages of mediaStatnds
+    # TODO: document the different usages of mediaStats
     #   "mediaStats": { "r": { "missing": null }, "ttl": -1 }
     #   "mediaStats": { "r": "Missing", "ttl": -1 }
     #   and coordinate
@@ -285,10 +285,8 @@ class TwitterUser(InnerDoc):
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
         term_vector=_INDEX_TERM_VECTOR,
-        analyzer="whitespace",
+        analyzer="standard",
     )
-    description_orig = Keyword(doc_values=False, index=False)
-    description_tokens = Keyword()
     url = Keyword(doc_values=False)
     entities = Object(TwitterUserEntities)
 
@@ -379,10 +377,8 @@ class TwitterDocument(BaseDocument):
         index_options=_INDEX_OPTIONS,
         index_phrases=_INDEX_PHRASES,
         term_vector=_INDEX_TERM_VECTOR,
-        analyzer="whitespace",
+        analyzer="standard",
     )
-    full_text_orig = Keyword(doc_values=False, index=False)
-    full_text_tokens = Keyword()
 
     truncated = Boolean()
     display_text_range = Integer(doc_values=False, index=False, multi=True)
@@ -443,26 +439,17 @@ class TwitterDocument(BaseDocument):
 
     @classmethod
     @overrides
-    def prepare_doc_dict(
-        cls, doc_dict: MutableMapping[str, object]
-    ) -> MutableMapping[str, object]:
-        result = super().prepare_doc_dict(doc_dict)
+    def prepare_doc_dict(cls, doc_dict: MutableMapping[str, object]) -> None:
+        super().prepare_doc_dict(doc_dict)
 
-        result["_id"] = result["id_str"]
+        doc_dict["_id"] = doc_dict["id_str"]
 
         # TODO: document this
         extended_entities = cast(
             Optional[Mapping[str, Sequence[Mapping[str, Dict[str, object]]]]],
-            result.get("extended_entities"),
+            doc_dict.get("extended_entities"),
         )
         for media in (extended_entities or {}).get("media", []):
             additional_media_info = media.get("additional_media_info")
             if additional_media_info:
                 additional_media_info.pop("source_user", None)
-
-        cls.tokenize_field(result, "full_text", lang=cast(str, result["lang"]))
-        cls.tokenize_field(
-            result, "user", "description", lang=cast(str, result["lang"])
-        )
-
-        return result

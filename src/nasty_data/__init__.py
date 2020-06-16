@@ -81,6 +81,7 @@ from nasty_data.elasticsearch_.index import (
     BaseDocument,
     add_documents_to_index,
     analyze_index,
+    customize_document_cls,
     ensure_index_exists,
     new_index,
 )
@@ -160,6 +161,7 @@ __all__ = [
     "BaseDocument",
     "add_documents_to_index",
     "analyze_index",
+    "customize_document_cls",
     "ensure_index_exists",
     "new_index",
     "NastyBatchMeta",

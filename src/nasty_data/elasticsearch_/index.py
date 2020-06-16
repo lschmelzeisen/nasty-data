@@ -20,32 +20,27 @@ from functools import partial
 from logging import getLogger
 from multiprocessing.pool import Pool
 from typing import (
+    Callable,
+    Dict,
     Iterator,
     Mapping,
     MutableMapping,
     Optional,
-    Sequence,
     Tuple,
     Type,
     TypeVar,
+    Union,
     cast,
+    overload,
 )
-from unicodedata import normalize
 
 from elasticsearch.exceptions import ElasticsearchException
 from elasticsearch.helpers import bulk
-from elasticsearch_dsl import Document, Index, connections
-from lxml import html
-from somajo import SoMaJo
+from elasticsearch_dsl import Document, Field, Index, InnerDoc, Object, connections
 
-from nasty_utils import ColoredBraceStyleAdapter, checked_cast
+from nasty_utils import ColoredBraceStyleAdapter
 
 _LOGGER = ColoredBraceStyleAdapter(getLogger(__name__))
-
-_TOKENIZER = {
-    "en": SoMaJo("en_PTB", split_sentences=False),
-    "de": SoMaJo("de_CMC", split_sentences=False),
-}
 
 _T_BaseDocument = TypeVar("_T_BaseDocument", bound="BaseDocument")
 
@@ -63,67 +58,101 @@ class BaseDocument(Document):
     def from_dict(
         cls: Type[_T_BaseDocument], doc_dict: Mapping[str, object]
     ) -> _T_BaseDocument:
-        return cls(
-            **cls.prepare_doc_dict(
-                cast(MutableMapping[str, object], deepcopy(doc_dict))
-            )
-        )
+        doc_dict = cast(MutableMapping[str, object], deepcopy(doc_dict))
+        cls.prepare_doc_dict(doc_dict)
+        return cls(**doc_dict)
 
     @classmethod
-    def prepare_doc_dict(
-        cls, doc_dict: MutableMapping[str, object]
-    ) -> MutableMapping[str, object]:
-        return doc_dict
-
-    @classmethod
-    def tokenize_field(
-        cls, doc_dict: MutableMapping[str, object], *field_path: str, lang: str = "en",
-    ) -> None:
-        if lang not in _TOKENIZER.keys():
-            lang = "en"
-
-        segment = field_path[0]
-        value = doc_dict.get(segment)
-        if value is None:
-            return
-        elif len(field_path) == 1:
-            (
-                doc_dict[segment],
-                doc_dict[segment + "_orig"],
-                doc_dict[segment + "_tokens"],
-            ) = cls._tokenize(checked_cast(str, value), lang)
-        elif isinstance(value, MutableMapping):
-            cls.tokenize_field(value, *field_path[1:], lang=lang)
-        elif isinstance(value, Sequence):
-            for v in value:
-                cls.tokenize_field(v, *field_path[1:], lang=lang)
-        else:
-            raise ValueError(
-                f"Value is of type {type(value)}, expected {MutableMapping} or "
-                f"{Sequence}."
-            )
-
-    @classmethod
-    def _tokenize(cls, text_orig: str, lang: str) -> Tuple[str, str, Sequence[str]]:
-        text = text_orig.strip()
-        text = normalize("NFKC", text)
-        if not text:
-            return "", "", []
-
-        text = str(html.fromstring(text).text_content())
-        if not text:
-            return "", "", []
-
-        tokens = [
-            token.text.lower()
-            for token in next(_TOKENIZER[lang].tokenize_text([text]))
-            if (token.token_class not in ["URL", "symbol"])
-        ]
-        return " ".join(tokens), text_orig, tokens
+    def prepare_doc_dict(cls, doc_dict: MutableMapping[str, object]) -> None:
+        pass
 
     @classmethod
     def meta_field(cls) -> Optional[Tuple[str, str]]:
         return None
+
+
+_T_DocumentMeta = Union[Type[Document], Type[InnerDoc]]
+_T_Document = TypeVar("_T_Document", bound=Document)
+_T_InnerDoc = TypeVar("_T_InnerDoc", bound=InnerDoc)
+
+
+@overload
+def customize_document_cls(
+    document_cls: Type[_T_Document],
+    field_callback: Callable[
+        [_T_DocumentMeta, str, Field, Optional[Type[InnerDoc]]], Mapping[str, Field]
+    ],
+    *,
+    name_prefix: str,
+    superclasses: Tuple[Type[object], ...] = ...,
+    recursive: bool = ...,
+) -> Type[_T_Document]:
+    ...
+
+
+@overload
+def customize_document_cls(
+    document_cls: Type[_T_InnerDoc],
+    field_callback: Callable[
+        [_T_DocumentMeta, str, Field, Optional[Type[InnerDoc]]], Mapping[str, Field]
+    ],
+    *,
+    name_prefix: str,
+    superclasses: Tuple[Type[object], ...] = ...,
+    recursive: bool = ...,
+) -> Type[_T_InnerDoc]:
+    ...
+
+
+def customize_document_cls(
+    document_cls: _T_DocumentMeta,
+    field_callback: Callable[
+        [_T_DocumentMeta, str, Field, Optional[Type[InnerDoc]]], Mapping[str, Field]
+    ],
+    *,
+    name_prefix: str,
+    superclasses: Tuple[Type[object], ...] = (),
+    recursive: bool = True,
+) -> _T_DocumentMeta:
+    mapping = document_cls._doc_type.mapping
+    inner_classes: MutableMapping[Type[InnerDoc], Type[InnerDoc]] = {}
+
+    new_document_cls_dict: Dict[str, object] = {}
+
+    for field_name in mapping:
+        field = mapping[field_name]
+        inner_class = None
+
+        if isinstance(field, Object):
+            inner_class = field._doc_class
+            if recursive:
+                if inner_class not in inner_classes:
+                    inner_classes[inner_class] = customize_document_cls(
+                        inner_class,
+                        field_callback,
+                        name_prefix=name_prefix,
+                        recursive=True,
+                    )
+
+                if inner_class != inner_classes[inner_class]:
+                    inner_class = inner_classes[inner_class]
+                    new_document_cls_dict[field_name] = type(field)(inner_class)
+
+        new_document_cls_dict.update(
+            field_callback(document_cls, field_name, field, inner_class)
+        )
+
+    if not new_document_cls_dict:
+        return document_cls
+
+    return cast(
+        _T_DocumentMeta,
+        type(
+            name_prefix + document_cls.__name__,
+            superclasses + (document_cls,),
+            new_document_cls_dict,
+        ),
+    )
 
 
 def new_index(
