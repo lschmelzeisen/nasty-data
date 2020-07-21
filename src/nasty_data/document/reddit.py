@@ -30,13 +30,12 @@ from elasticsearch_dsl import (
     Short,
     Text,
 )
+from nasty_utils import checked_cast
 from overrides import overrides
-from typing_extensions import Final
 
 from nasty_data.elasticsearch_.index import BaseDocument
-from nasty_utils import checked_cast
 
-# This file contains the elasticsearch-dsl mapping for reading and writing Reddit posts
+# This file contains the elastic2earch-dsl mapping for reading and writing Reddit posts
 # (specifically from the Pushshift dumps).
 #
 # It is important to note that the data format quite a bit over the years. Additionally,
@@ -96,9 +95,9 @@ from nasty_utils import checked_cast
 #   https://github.com/lschmelzeisen/opamin/blob/03b35d4005fc1642662e69672de4cd2d4ca4660e/opamin/data/reddit.py
 
 
-_INDEX_OPTIONS: Final[str] = "offsets"
-_INDEX_PHRASES: Final[bool] = False
-_INDEX_TERM_VECTOR: Final[str] = "with_positions_offsets"
+_INDEX_OPTIONS: str = "offsets"
+_INDEX_PHRASES: bool = False
+_INDEX_TERM_VECTOR: str = "with_positions_offsets"
 
 
 class RedditDate(Date):

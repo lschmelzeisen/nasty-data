@@ -31,7 +31,6 @@ from elasticsearch_dsl import (
     Text,
 )
 from overrides import overrides
-from typing_extensions import Final
 
 from nasty_data.elasticsearch_.index import BaseDocument
 
@@ -49,9 +48,9 @@ from nasty_data.elasticsearch_.index import BaseDocument
 
 # TODO: doc id_str over id
 
-_INDEX_OPTIONS: Final[str] = "offsets"
-_INDEX_PHRASES: Final[bool] = False
-_INDEX_TERM_VECTOR: Final[str] = "with_positions_offsets"
+_INDEX_OPTIONS: str = "offsets"
+_INDEX_PHRASES: bool = False
+_INDEX_TERM_VECTOR: str = "with_positions_offsets"
 
 
 class TwitterJsonAsStr(Keyword):

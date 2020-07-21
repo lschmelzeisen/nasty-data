@@ -14,7 +14,6 @@
 # limitations under the License.
 #
 
-import enum
 import json
 import re
 from datetime import date
@@ -27,13 +26,11 @@ from typing import Counter, Iterator, Mapping, Optional, Tuple
 
 import requests
 from elasticsearch_dsl import Date, InnerDoc, Keyword, Object
-
-from nasty_data.document.reddit import RedditDocument
 from nasty_utils import (
     ColoredBraceStyleAdapter,
     DecompressingTextIOWrapper,
     FileNotOnServerError,
-    advance_date_by_months,
+    advance_date_by_month,
     download_file_with_progressbar,
     format_yyyy_mm,
     format_yyyy_mm_dd,
@@ -41,12 +38,14 @@ from nasty_utils import (
     sha256sum,
 )
 
+from nasty_data.document.reddit import RedditDocument
+
 _LOGGER = ColoredBraceStyleAdapter(getLogger(__name__))
 
 
 class PushshiftDumpType(Enum):
-    LINKS = enum.auto()
-    COMMENTS = enum.auto()
+    LINKS = "links"
+    COMMENTS = "comments"
 
 
 _PUSHSHIFT_URL = {
@@ -119,7 +118,7 @@ def download_pushshift_dumps(
 
             if current_date == until:
                 break
-            current_date = advance_date_by_months(current_date, num_months=1)
+            current_date = advance_date_by_month(current_date)
 
 
 def _download_pushshift_checksums(dump_type: PushshiftDumpType) -> Mapping[str, str]:

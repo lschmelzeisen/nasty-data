@@ -21,9 +21,9 @@ from pathlib import Path
 from typing import Iterator, Mapping, Optional, Tuple
 
 from elasticsearch_dsl import Date, InnerDoc, Integer, Keyword, Nested, Object
+from nasty_utils import ColoredBraceStyleAdapter, DecompressingTextIOWrapper
 
 from nasty_data.document.twitter import TwitterDocument
-from nasty_utils import ColoredBraceStyleAdapter, DecompressingTextIOWrapper
 
 _LOGGER = ColoredBraceStyleAdapter(getLogger(__name__))
 

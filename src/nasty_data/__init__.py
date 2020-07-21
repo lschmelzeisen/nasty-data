@@ -14,6 +14,19 @@
 # limitations under the License.
 #
 
+
+__version__ = "dev"
+try:
+    from nasty_data._version import __version__  # type: ignore
+except ImportError:
+    pass
+
+__version_info__ = tuple(
+    (int(part) if part.isdigit() else part)
+    for part in __version__.split(".", maxsplit=4)
+)
+
+
 import logging
 
 from nasty_data.cli import NastyDataProgram
@@ -76,7 +89,6 @@ from nasty_data.document.twitter import (
     TwitterUserEntities,
     TwitterUserExt,
 )
-from nasty_data.elasticsearch_.config import ElasticsearchConfig
 from nasty_data.elasticsearch_.index import (
     BaseDocument,
     add_documents_to_index,
@@ -85,6 +97,7 @@ from nasty_data.elasticsearch_.index import (
     ensure_index_exists,
     new_index,
 )
+from nasty_data.elasticsearch_.settings import ElasticsearchSettings
 from nasty_data.source.nasty_batch_results import (
     NastyBatchMeta,
     NastyBatchResultsTwitterDocument,
@@ -157,7 +170,7 @@ __all__ = [
     "TwitterUser",
     "TwitterUserEntities",
     "TwitterUserExt",
-    "ElasticsearchConfig",
+    "ElasticsearchSettings",
     "BaseDocument",
     "add_documents_to_index",
     "analyze_index",
@@ -176,16 +189,6 @@ __all__ = [
     "sample_pushshift_dumps",
 ]
 
-__version__ = "dev"
-try:
-    from nasty_data._version import __version__  # type: ignore
-except ImportError:
-    pass
-
-__version_info__ = tuple(
-    (int(part) if part.isdigit() else part)
-    for part in __version__.split(".", maxsplit=4)
-)
 
 # Don't show log messages in applications that don't configure logging.
 # See https://docs.python.org/3/howto/logging.html#configuring-logging-for-a-library

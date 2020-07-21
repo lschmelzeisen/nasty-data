@@ -15,72 +15,63 @@
 #
 
 from datetime import date
-from functools import partial
-from importlib import import_module
 from inspect import signature
 from logging import getLogger
 from pathlib import Path
 from typing import Callable, Iterator, Mapping, Optional, Type, TypeVar, cast
 
+from nasty_utils import (
+    Argument,
+    ArgumentGroup,
+    ColoredBraceStyleAdapter,
+    Program,
+    ProgramConfig,
+    SettingsConfig,
+    lookup_qualified_name,
+    parse_yyyy_mm,
+    safe_issubclass,
+)
 from overrides import overrides
+from pydantic import validator
 
 import nasty_data
-from nasty_data.elasticsearch_.config import ElasticsearchConfig
 from nasty_data.elasticsearch_.index import (
     BaseDocument,
     add_documents_to_index,
     analyze_index,
     new_index,
 )
+from nasty_data.elasticsearch_.settings import ElasticsearchSettings
 from nasty_data.source.pushshift import (
     PushshiftDumpType,
     download_pushshift_dumps,
     sample_pushshift_dumps,
 )
-from nasty_utils import (
-    Argument,
-    ArgumentGroup,
-    ColoredBraceStyleAdapter,
-    Command,
-    CommandMeta,
-    Flag,
-    Program,
-    ProgramMeta,
-    parse_enum_arg,
-    parse_yyyy_mm_arg,
-)
 
 _LOGGER = ColoredBraceStyleAdapter(getLogger(__name__))
 
 _T_BaseDocument = TypeVar("_T_BaseDocument", bound=BaseDocument)
+_T_Validator = classmethod
 
 
-def _get_module_member_from_fqn(fqn: str) -> object:
-    if "." not in fqn:
-        raise ValueError(f"Not a valid fully-qualified name: '{fqn}'")
-    module_name, member_name = fqn.rsplit(".", maxsplit=1)
-    module = import_module(module_name)
-    member = getattr(module, member_name, None)
-    if member is None:
-        raise ValueError(f"Could not find member '{member_name}' in module '{module}'.")
-    return member
+class _NastyElasticsearchSettings(ElasticsearchSettings):
+    class Config(SettingsConfig):
+        search_path = Path("nasty.toml")
 
 
-def _get_document_cls_from_fqn(fqn: str) -> Type[BaseDocument]:
-    document_cls = _get_module_member_from_fqn(fqn)
-    if not isinstance(document_cls, type):
-        raise ValueError(f"Given value {repr(document_cls)} is not a class.")
-    if not issubclass(document_cls, BaseDocument):
+def _document_cls_validator(value: str) -> Type[BaseDocument]:
+    document_cls = lookup_qualified_name(value)
+    if not safe_issubclass(document_cls, BaseDocument):
         raise ValueError(
-            f"Given class {repr(document_cls)} is not a subclass of BaseDocument."
+            f"Given value {repr(document_cls)} is not a subclass of BaseDocument."
         )
-    return document_cls
+    return cast(Type[BaseDocument], document_cls)
 
 
-def _get_load_document_dicts_func_from_fqn(
-    fqn: str,
+def _load_document_dicts_func_validator(
+    value: str,
 ) -> Callable[[Path], Iterator[Mapping[str, object]]]:
-    load_document_dicts_func = _get_module_member_from_fqn(fqn)
+    load_document_dicts_func = lookup_qualified_name(value)
     if not callable(load_document_dicts_func):
         raise ValueError(
             f"Given value {repr(load_document_dicts_func)} is not a callable."
@@ -126,50 +117,59 @@ def _get_load_document_dicts_func_from_fqn(
     )
 
 
-_DOCUMENT_CLS_ARGUMENT = Argument(
-    name="doc-cls",
-    short_name="d",
-    desc="Fully-qualified class name of BaseDocument subclass.",
-    metavar="FQN",
-    required=True,
-    deserializer=_get_document_cls_from_fqn,
-)
+def _yyyy_mm_validator(value: Optional[str]) -> Optional[date]:
+    return parse_yyyy_mm(value) if value else None
 
 
-class _NewIndexCommand(Command[ElasticsearchConfig]):
-    _new_index_arguments = ArgumentGroup(name="New Index Arguments")
-    index_name: str = Argument(
-        name="name",
-        short_name="n",
-        desc="Base name of the index (timestamp will be appended).",
-        metavar="NAME",
-        required=True,
-    )
-    document_cls: Type[BaseDocument] = _DOCUMENT_CLS_ARGUMENT
-    move_data: bool = Flag(
-        name="move-data", desc="Reindex data from previous index into new one."
-    )
-    update_alias: bool = Flag(
-        name="update-alias",
-        desc="Update alias of index base name to point to new index.",
-        default=True,
-    )
+_NEW_INDEX_ARGUMENT_GROUP = ArgumentGroup(name="New Index Arguments")
 
-    @classmethod
-    @overrides
-    def meta(cls) -> CommandMeta:
-        return CommandMeta(
-            name="new-index",
-            aliases=["n"],
-            desc=(
-                "Create new Elasticsearch index with current settings and mappings "
-                "for given dump type, update index alias."
-            ),
+
+class _NewIndexProgram(Program):
+    class Config(ProgramConfig):
+        title = "new-index"
+        aliases = ("n",)
+        description = (
+            "Create new Elasticsearch index with current settings and mappings for "
+            "given dump type, update index alias."
         )
+
+    settings: _NastyElasticsearchSettings = Argument(
+        alias="config", description="Overwrite default config file path."
+    )
+
+    index_name: str = Argument(
+        alias="name",
+        short_alias="n",
+        description="Base name of the index (timestamp will be appended).",
+        group=_NEW_INDEX_ARGUMENT_GROUP,
+    )
+    document_cls: Type[BaseDocument] = Argument(
+        alias="doc-cls",
+        short_alias="d",
+        description="Fully-qualified class name of BaseDocument subclass.",
+        metavar="FQN",
+        group=_NEW_INDEX_ARGUMENT_GROUP,
+    )
+    move_data: bool = Argument(
+        False,
+        alias="move-data",
+        description="Reindex data from previous index into new one.",
+        group=_NEW_INDEX_ARGUMENT_GROUP,
+    )
+    update_alias: bool = Argument(
+        True,
+        alias="update-alias",
+        description="Update alias of index base name to point to new index.",
+        group=_NEW_INDEX_ARGUMENT_GROUP,
+    )
+
+    _document_cls_validator: _T_Validator = validator(
+        "document_cls", pre=True, allow_reuse=True
+    )(_document_cls_validator)
 
     @overrides
     def run(self) -> None:
-        self.config.setup_elasticsearch_connection()
+        self.settings.setup_elasticsearch_connection()
         new_index(
             self.index_name,
             self.document_cls,
@@ -178,157 +178,173 @@ class _NewIndexCommand(Command[ElasticsearchConfig]):
         )
 
 
-class _IndexDumpCommand(Command[ElasticsearchConfig]):
-    _index_dump_arguments = ArgumentGroup(name="Index Dump Arguments")
-    index_name: str = Argument(
-        name="name",
-        short_name="n",
-        desc="Name of the index.",
-        metavar="NAME",
-        required=True,
+_INDEX_DUMP_ARGUMENT_GROUP = ArgumentGroup(name="Index Dump Arguments")
+
+
+class _IndexDumpProgram(Program):
+    class Config(ProgramConfig):
+        title = "index-dump"
+        aliases = ("i",)
+        description = "Add contents of a given post dump to Elasticsearch index."
+
+    settings: _NastyElasticsearchSettings = Argument(
+        alias="config", description="Overwrite default config file path."
     )
-    document_cls: Type[BaseDocument] = _DOCUMENT_CLS_ARGUMENT
+
+    index_name: str = Argument(
+        alias="name",
+        short_alias="n",
+        description="Name of the index.",
+        group=_NEW_INDEX_ARGUMENT_GROUP,
+    )
+    document_cls: Type[BaseDocument] = Argument(
+        alias="doc-cls",
+        short_alias="d",
+        description="Fully-qualified class name of BaseDocument subclass.",
+        metavar="FQN",
+        group=_NEW_INDEX_ARGUMENT_GROUP,
+    )
     load_document_dicts_func: Callable[
         [Path], Iterator[Mapping[str, object]]
     ] = Argument(
-        name="load-fun",
-        short_name="l",
-        desc=(
+        alias="load-fun",
+        short_alias="l",
+        description=(
             "Fully-qualified name of function taking a file path and yielding document "
             "dicts (passed to --class init)."
         ),
         metavar="FQN",
-        required=True,
-        deserializer=_get_load_document_dicts_func_from_fqn,
+        group=_NEW_INDEX_ARGUMENT_GROUP,
     )
     file: Path = Argument(
-        name="file",
-        short_name="f",
-        desc="Dump file containing all posts to index.",
-        metavar="FILE",
-        required=True,
-        deserializer=Path,
+        short_alias="f",
+        description="Dump file containing all posts to index.",
+        group=_NEW_INDEX_ARGUMENT_GROUP,
     )
     num_procs: int = Argument(
-        name="num-procs",
-        desc=(
+        0,
+        alias="num-procs",
+        description=(
             "Number of processors to use for parallel preprocessing "
             "(default: 0, detects number of available processors)."
         ),
         metavar="N",
-        default=0,
-        deserializer=int,
+        group=_NEW_INDEX_ARGUMENT_GROUP,
     )
 
-    @classmethod
-    @overrides
-    def meta(cls) -> CommandMeta:
-        return CommandMeta(
-            name="index-dump",
-            aliases=["i"],
-            desc="Add contents of a given post dump to Elasticsearch index.",
-        )
+    _document_cls_validator: _T_Validator = validator(
+        "document_cls", pre=True, allow_reuse=True
+    )(_document_cls_validator)
+    _load_document_dicts_func_validator: _T_Validator = validator(
+        "load_document_dicts_func", pre=True, allow_reuse=True
+    )(_load_document_dicts_func_validator)
 
     @overrides
     def run(self) -> None:
-        self.config.setup_elasticsearch_connection()
+        self.settings.setup_elasticsearch_connection()
         add_documents_to_index(
             self.index_name,
             self.document_cls,
             # Need type: ignore because of https://github.com/python/mypy/issues/708
             self.load_document_dicts_func(self.file),  # type: ignore
-            max_retries=self.config.elasticsearch.max_retries,
+            max_retries=self.settings.elasticsearch.max_retries,
             num_procs=self.num_procs if self.num_procs > 0 else None,
         )
 
 
-class _AnalyzeIndexCommand(Command[ElasticsearchConfig]):
-    _analyze_index_arguments = ArgumentGroup(name="Analyze Index Arguments")
-    index_name: str = Argument(
-        name="name",
-        short_name="n",
-        desc="Name of the index.",
-        metavar="NAME",
-        required=True,
-    )
-    document_cls: Type[BaseDocument] = _DOCUMENT_CLS_ARGUMENT
+_ANALYZE_INDEX_ARGUMENT_GROUP = ArgumentGroup(name="Analyze Index Arguments")
 
-    @classmethod
-    @overrides
-    def meta(cls) -> CommandMeta:
-        return CommandMeta(
-            name="analyze-index", aliases=["a"], desc="Analyze mappings of an index.",
-        )
+
+class _AnalyzeIndexProgram(Program):
+    class Config(ProgramConfig):
+        title = "analyze-index"
+        aliases = ("a",)
+        description = "Analyze mappings of an index."
+
+    settings: _NastyElasticsearchSettings = Argument(
+        alias="config", description="Overwrite default config file path."
+    )
+
+    index_name: str = Argument(
+        alias="name",
+        short_alias="n",
+        description="Name of the index.",
+        group=_ANALYZE_INDEX_ARGUMENT_GROUP,
+    )
+    document_cls: Type[BaseDocument] = Argument(
+        alias="doc-cls",
+        short_alias="d",
+        description="Fully-qualified class name of BaseDocument subclass.",
+        metavar="FQN",
+        group=_ANALYZE_INDEX_ARGUMENT_GROUP,
+    )
+
+    _document_cls_validator: _T_Validator = validator(
+        "document_cls", pre=True, allow_reuse=True
+    )(_document_cls_validator)
 
     @overrides
     def run(self) -> None:
-        self.config.setup_elasticsearch_connection()
+        self.settings.setup_elasticsearch_connection()
         analyze_index(self.index_name, self.document_cls)
 
 
-class _PushshiftCommand(Command[ElasticsearchConfig]):
-    @classmethod
-    @overrides
-    def meta(cls) -> CommandMeta:
-        return CommandMeta(
-            name="pushshift",
-            aliases=["pu"],
-            desc="Download or sample the Pushshift Reddit dump.",
-        )
+_DOWNLOAD_PUSHSHIFT_ARGUMENT_GROUP = ArgumentGroup(name="Download Arguments")
 
 
-class _DownloadPushshiftCommand(Command[ElasticsearchConfig]):
-    _download_arguments = ArgumentGroup(name="Download Arguments")
+class _DownloadPushshiftProgram(Program):
+    class Config(ProgramConfig):
+        title = "download"
+        aliases = ("dl",)
+        description = "Download Pushshift Reddit dumps."
+
+    settings: _NastyElasticsearchSettings = Argument(
+        alias="config", description="Overwrite default config file path."
+    )
+
     directory: Path = Argument(
-        name="dir",
-        short_name="d",
-        desc="Directory to download dumps to.",
-        metavar="DIR",
-        required=True,
-        deserializer=Path,
+        alias="dir",
+        short_alias="d",
+        description="Directory to download dumps to.",
+        group=_DOWNLOAD_PUSHSHIFT_ARGUMENT_GROUP,
     )
     dump_type: Optional[PushshiftDumpType] = Argument(
-        name="type",
-        short_name="t",
-        desc=(
+        None,
+        alias="type",
+        short_alias="t",
+        description=(
             "Only load dumps of this type "
-            f"({', '.join(t.name for t in PushshiftDumpType)})."
+            f"({', '.join(t.value for t in PushshiftDumpType)})."
         ),
-        metavar="TYPE",
-        deserializer=partial(
-            parse_enum_arg,
-            enum_cls=PushshiftDumpType,
-            ignore_case=True,
-            convert_camel_case_for_error=True,
-        ),
+        group=_DOWNLOAD_PUSHSHIFT_ARGUMENT_GROUP,
     )
     since: Optional[date] = Argument(
-        name="since",
-        short_name="s",
-        desc=(
+        None,
+        short_alias="s",
+        description=(
             "Month of earliest dump to download in YYYY-MM format (inclusive, "
             "defaults to earliest available)."
         ),
         metavar="DATE",
-        deserializer=parse_yyyy_mm_arg,
+        group=_DOWNLOAD_PUSHSHIFT_ARGUMENT_GROUP,
     )
     until: Optional[date] = Argument(
-        name="until",
-        short_name="u",
-        desc=(
+        None,
+        short_alias="u",
+        description=(
             "Month of latest dump to download in YYYY-MM format (inclusive, "
             "defaults to latest available)."
         ),
         metavar="DATE",
-        deserializer=parse_yyyy_mm_arg,
+        group=_DOWNLOAD_PUSHSHIFT_ARGUMENT_GROUP,
     )
 
-    @classmethod
-    @overrides
-    def meta(cls) -> CommandMeta:
-        return CommandMeta(
-            name="download", aliases=["dl"], desc="Download Pushshift Reddit dumps."
-        )
+    _since_validator: _T_Validator = validator("since", pre=True, allow_reuse=True)(
+        _yyyy_mm_validator
+    )
+    _until_validator: _T_Validator = validator("until", pre=True, allow_reuse=True)(
+        _yyyy_mm_validator
+    )
 
     @overrides
     def run(self) -> None:
@@ -340,52 +356,55 @@ class _DownloadPushshiftCommand(Command[ElasticsearchConfig]):
         )
 
 
-class _SamplePushshiftCommand(Command[ElasticsearchConfig]):
-    _sample_arguments = ArgumentGroup(name="Sample Arguments")
-    directory: Path = Argument(
-        name="dir",
-        short_name="d",
-        desc="Directory to download dumps to.",
-        metavar="DIR",
-        required=True,
-        deserializer=Path,
+_SAMPLE_PUSHSHIFT_ARGUMENT_GROUP = ArgumentGroup(name="Sample Arguments")
+
+
+class _SamplePushshiftProgram(Program):
+    class Config(ProgramConfig):
+        title = "sample"
+        aliases = ("s",)
+        description = "Produce a sample of all downloaded Pushshift dumps."
+
+    settings: _NastyElasticsearchSettings = Argument(
+        alias="config", description="Overwrite default config file path."
     )
 
-    @classmethod
-    @overrides
-    def meta(cls) -> CommandMeta:
-        return CommandMeta(
-            name="sample",
-            aliases=["s"],
-            desc="Produce a sample of all downloaded Pushshift dumps.",
-        )
+    directory: Path = Argument(
+        alias="dir",
+        short_alias="d",
+        description="Directory containing dumps. Samples will be written here.",
+        group=_SAMPLE_PUSHSHIFT_ARGUMENT_GROUP,
+    )
 
     @overrides
     def run(self) -> None:
         sample_pushshift_dumps(self.directory)
 
 
-class NastyDataProgram(Program[ElasticsearchConfig]):
-    @classmethod
-    @overrides
-    def meta(cls) -> ProgramMeta[ElasticsearchConfig]:
-        return ProgramMeta(
-            name="nasty-data",
-            version=nasty_data.__version__,
-            desc="TODO",
-            config_type=ElasticsearchConfig,
-            config_file="nasty.toml",
-            config_dir=".",
-            command_hierarchy={
-                Command: [
-                    _NewIndexCommand,
-                    _IndexDumpCommand,
-                    _AnalyzeIndexCommand,
-                    _PushshiftCommand,
-                ],
-                _PushshiftCommand: [
-                    _DownloadPushshiftCommand,
-                    _SamplePushshiftCommand,
-                ],
-            },
+class _PushshiftProgram(Program):
+    class Config(ProgramConfig):
+        title = "pushshift"
+        aliases = ("pu",)
+        description = "Download or sample the Pushshift Reddit dump."
+        subprograms = (_DownloadPushshiftProgram, _SamplePushshiftProgram)
+
+    settings: _NastyElasticsearchSettings = Argument(
+        alias="config", description="Overwrite default config file path."
+    )
+
+
+class NastyDataProgram(Program):
+    class Config(ProgramConfig):
+        title = "nasty-data"
+        version = nasty_data.__version__
+        description = "TODO"
+        subprograms = (
+            _NewIndexProgram,
+            _IndexDumpProgram,
+            _AnalyzeIndexProgram,
+            _PushshiftProgram,
         )
+
+    settings: _NastyElasticsearchSettings = Argument(
+        alias="config", description="Overwrite default config file path."
+    )

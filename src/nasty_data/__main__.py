@@ -20,7 +20,7 @@ from nasty_data.cli import NastyDataProgram
 
 
 def main() -> None:
-    NastyDataProgram(*argv[1:])
+    NastyDataProgram.init(*argv[1:]).run()
 
 
 if __name__ == "__main__":

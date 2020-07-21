@@ -58,7 +58,7 @@ check-vulture: ##- Check for unsued code.
 .PHONY: check-vulture
 
 check-isort: ##- Check if imports are sorted correctly.
-	@isort --check-only --recursive --quiet .
+	@isort --check-only --quiet .
 .PHONY: check-isort
 
 check-black: ##- Check if code is formatted correctly.
@@ -80,7 +80,7 @@ format-autoflake: ##- Remove unused imports and variables.
 .PHONY: format-autoflake
 
 format-isort: ##- Sort all imports.
-	@isort --recursive --quiet .
+	@isort --quiet .
 .PHONY: format-isort
 
 format-black: ##- Format all code.

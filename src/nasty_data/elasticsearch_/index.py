@@ -37,7 +37,6 @@ from typing import (
 from elasticsearch.exceptions import ElasticsearchException
 from elasticsearch.helpers import streaming_bulk
 from elasticsearch_dsl import Document, Field, Index, InnerDoc, Object, connections
-
 from nasty_utils import ColoredBraceStyleAdapter
 
 _LOGGER = ColoredBraceStyleAdapter(getLogger(__name__))

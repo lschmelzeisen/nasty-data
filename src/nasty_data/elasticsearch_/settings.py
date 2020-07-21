@@ -18,32 +18,26 @@ from logging import getLogger
 from pathlib import Path
 
 from elasticsearch_dsl import connections
-
-from nasty_utils import (
-    ColoredBraceStyleAdapter,
-    Config,
-    ConfigAttr,
-    ConfigSection,
-    LoggingConfig,
-)
+from nasty_utils import ColoredBraceStyleAdapter, LoggingSettings, Settings
+from pydantic import SecretStr
 
 _LOGGER = ColoredBraceStyleAdapter(getLogger(__name__))
 
 
-class _ElasticsearchSection(Config):
-    host: str = ConfigAttr(default="localhost")
-    port: int = ConfigAttr(default=9200)
-    user: str = ConfigAttr(default="elastic")
-    password: str = ConfigAttr(default="", secret=True)
-    ca_crt_path: Path = ConfigAttr(required=True)
-    timeout: float = ConfigAttr(default=10.0)
-    retry_on_timeout: bool = ConfigAttr(default=True)
-    max_retries: int = ConfigAttr(default=5)
-    http_compress: bool = ConfigAttr(default=True)
+class _ElasticsearchSection(Settings):
+    host: str = "localhost"
+    port: int = 9200
+    user: str = "elastic"
+    password: SecretStr = SecretStr("")
+    ca_crt_path: Path
+    timeout: float = 10.0
+    retry_on_timeout: bool = True
+    max_retries: int = 5
+    http_compress: bool = True
 
 
-class ElasticsearchConfig(LoggingConfig):
-    elasticsearch: _ElasticsearchSection = ConfigSection()
+class ElasticsearchSettings(LoggingSettings):
+    elasticsearch: _ElasticsearchSection
 
     def setup_elasticsearch_connection(self) -> None:
         _LOGGER.debug("Setting up Elasticsearch connection.")
@@ -62,7 +56,10 @@ class ElasticsearchConfig(LoggingConfig):
             http_compress=self.elasticsearch.http_compress,
             scheme="https",
             use_ssl=True,
-            http_auth=(self.elasticsearch.user, self.elasticsearch.password),
+            http_auth=(
+                self.elasticsearch.user,
+                self.elasticsearch.password.get_secret_value(),
+            ),
             verify_certs=True,
             ssl_show_warn=True,
             ca_certs=str(self.elasticsearch.ca_crt_path),
