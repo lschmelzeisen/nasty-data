@@ -51,6 +51,9 @@ force_grid_wrap = 0
 include_trailing_comma = true
 use_parentheses = true
 
+[tools.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.setuptools_scm]
 write_to = "src/nasty_data/_version.py"
 write_to_template = "__version__ = \"{version}\"\n"
