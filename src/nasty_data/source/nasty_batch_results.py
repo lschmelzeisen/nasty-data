@@ -55,7 +55,9 @@ class NastyBatchResultsTwitterDocument(TwitterDocument):
 
 
 def load_document_dicts_from_nasty_batch_results(
-    data_file: Path, *, progress_bar: bool = True,
+    data_file: Path,
+    *,
+    progress_bar: bool = True,
 ) -> Iterator[Mapping[str, object]]:
     meta_file = data_file.with_name(
         data_file.name[: -len(".data.jsonl.xz")] + ".meta.json"

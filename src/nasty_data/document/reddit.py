@@ -102,7 +102,10 @@ _INDEX_TERM_VECTOR: str = "with_positions_offsets"
 
 class RedditDate(Date):
     def __init__(
-        self, millis: bool = False, *args: Any, **kwargs: Any,
+        self,
+        millis: bool = False,
+        *args: Any,
+        **kwargs: Any,
     ):
         self._millis = millis
         super().__init__(*args, **kwargs)

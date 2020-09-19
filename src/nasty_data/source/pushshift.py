@@ -242,7 +242,9 @@ class PushshiftRedditDocument(RedditDocument):
 
 
 def load_document_dicts_from_pushshift_dump(
-    dump_file: Path, *, progress_bar: bool = True,
+    dump_file: Path,
+    *,
+    progress_bar: bool = True,
 ) -> Iterator[Mapping[str, object]]:
     pushshift_dump_meta: Optional[Mapping[str, object]] = None
     for dump_type, file_pattern in (
